@@ -131,6 +131,7 @@ RECOVERED_FEEDS = [
 
 CATALOGUE = [(source, url, True) for source, url in DEFAULT_FEEDS] + \
             [(source, url, False) for source, url in RECOVERED_FEEDS]
+CATALOGUE_SOURCES = {source for source, _, _ in CATALOGUE}
 
 ALL_FEEDS: list[dict] = []   # every known feed, enabled or not
 FEEDS: list[tuple] = []      # (source, url) for enabled feeds only — what the bar rotates
@@ -709,6 +710,21 @@ def hacker_news_logo_png() -> bytes:
     return encode_png(pixels)
 
 
+def rss_icon_png() -> bytes:
+    """Render a tiny monochrome RSS glyph for user-added feeds."""
+    white = (255, 255, 255, 255)
+    art = (
+        ".......",
+        ".W.....",
+        "...W...",
+        ".W..W..",
+        ".....W.",
+        ".W...W.",
+        ".......",
+    )
+    return encode_png([[white if pixel == "W" else CLEAR for pixel in row] for row in art])
+
+
 BADGES = {
     "DARKNET DIARIES": ("DD", (13, 13, 18, 255), (255, 48, 73, 255)),
     "GRAHAM CLULEY": ("GC", (20, 72, 110, 255), (255, 255, 255, 255)),
@@ -770,6 +786,7 @@ def badge_spec(source: str) -> tuple[str, Pixel, Pixel]:
 def is_badge_source(source: str) -> bool:
     """True when the source uses the editable badge renderer rather than custom art."""
     return not (source in ("UNLEASHEDFLIP", "HACKER NEWS", "CLOCK")
+                or source not in CATALOGUE_SOURCES
                 or source.startswith(("WIRED", "NPR ", "VERGE ")))
 
 
@@ -806,6 +823,8 @@ def icon_details(source: str) -> tuple[str, bytes, int, str]:
         return "verge-pixel-v2.png", verge_logo_png(), 16, "#FFFFFFFF"
     if source == "HACKER NEWS":
         return "hacker-news-pixel-v2.png", hacker_news_logo_png(), 12, "#FFFFFFFF"
+    if source not in CATALOGUE_SOURCES:
+        return source_slug(source) + "-rss-white-v1.png", rss_icon_png(), 10, "#FFFFFFFF"
     label, background, foreground = badge_spec(source)
     filename = source_slug(source) + ".png"
     return (filename, badge_logo_png(label, background, foreground),
@@ -817,11 +836,12 @@ def icons_by_filename() -> dict[str, str]:
     return {icon_details(entry["source"])[0]: entry["source"] for entry in ALL_FEEDS}
 
 
-def upload_icon(config: Config, source: str) -> tuple[str, int, str]:
+def upload_icon(config: Config, source: str,
+                application_name: str = "busy_rss") -> tuple[str, int, str]:
     filename, content, text_x, color = icon_details(source)
     if source == "CLOCK":
         content = flip_clock_png(config=config)
-    query = urllib.parse.urlencode({"application_name": "busy_rss", "file": filename})
+    query = urllib.parse.urlencode({"application_name": application_name, "file": filename})
     headers = {"Content-Type": "application/octet-stream", "Accept": "application/json"}
     if config.api_key:
         headers["X-API-Key"] = config.api_key
@@ -2068,22 +2088,13 @@ def show_clients_now(config: Config) -> dict:
 
 
 def send_plain_headline(config: Config, item: Headline, rank: int, timeout: int = 7) -> None:
-    """Show one feed: static pixel source name plus its scrolling headline."""
+    """Show one digest item with the same pixel logo used by normal RSS pushes."""
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     if config.api_key:
         headers["X-API-Key"] = config.api_key
-    source_names = {
-        "SOPHOS RESEARCH": "SOPHOS RESEARCH",
-        "SOPHOS OPS": "SOPHOS OPS",
-        "THE HACKER NEWS": "HACKER NEWS",
-        "UNLEASHEDFLIP": "UNLEASHED FLIP",
-        "WELIVESECURITY": "ESET SECURITY",
-    }
-    source = source_names.get(item.source, clean_text(item.source).upper())[:14]
+    filename, text_x, color = upload_icon(config, item.source, "busy_clock")
     age = format_age(item.published)
-    label = f"{source}  {age}" if age else source
-    title = clean_text(item.title)
-    color = "#FFFFFFFF"
+    title = clean_text(item.title) + (f"  |  {age}" if age else "")
     payload = {
         "application_name": "busy_clock", "priority": 100,
         "elements": [{
@@ -2092,20 +2103,13 @@ def send_plain_headline(config: Config, item: Headline, rank: int, timeout: int 
             "fill_colors": [config.clock_background], "border_width": 0,
             "display": "front", "timeout": timeout,
         }, {
-            "id": "rss-source-name", "type": "text", "text": label,
-            "font": "tiny", "color": config.clock_accent, "width": 72,
-            "align": "mid_left", "x": 0, "y": 4, "display": "front",
-            "scroll_rate": 0, "scroll_start_delay": 0,
-            "scroll_repeat_delay": 0, "timeout": timeout,
-        }, {
-            "id": "rss-divider", "type": "rectangle", "x": 0, "y": 8,
-            "width": 72, "height": 1, "fill": "solid",
-            "fill_colors": [config.clock_accent], "border_width": 0,
+            "id": "rss-feed-logo", "type": "image", "path": filename,
+            "align": "mid_left", "x": 0, "y": 8,
             "display": "front", "timeout": timeout,
         }, {
             "id": "rss-clean-text", "type": "text", "text": title[:500],
-            "font": "small", "color": color, "width": 72,
-            "align": "mid_left", "x": 0, "y": 13, "display": "front",
+            "font": "small", "color": color, "width": 72 - text_x,
+            "align": "mid_left", "x": text_x, "y": 8, "display": "front",
             "scroll_rate": 850, "scroll_start_delay": 300,
             "scroll_repeat_delay": 500, "timeout": timeout,
         }],
@@ -2315,6 +2319,21 @@ async def register_start_press() -> None:
         LOGGER.warning("rss.button.empty digest_not_ready")
         return
     asyncio.create_task(auto_play_digest())
+
+
+async def push_enabled_feeds() -> dict:
+    """Refresh every enabled feed and start the complete digest from the web UI."""
+    with STATE.lock:
+        already_playing = STATE.auto_play_active
+    if already_playing:
+        await register_start_press()
+        return {"result": "skipped", "feeds": len(STATE.rss_digest)}
+    if not await refresh_button_digest():
+        raise ValueError("None of the enabled RSS feeds returned a headline")
+    with STATE.lock:
+        count = len(STATE.rss_digest)
+    await register_start_press()
+    return {"result": "started", "feeds": count}
 
 
 async def accept_start_press(origin: str) -> None:
@@ -2712,6 +2731,11 @@ class Handler(BaseHTTPRequestHandler):
                 future = asyncio.run_coroutine_threadsafe(register_start_press(), NEXT_LOOP)
                 future.result(timeout=5)
                 self.json_response(200, {"result": "skipped" if was_playing else "started"})
+            elif path == "/api/rss/push":
+                if NEXT_LOOP is None:
+                    raise ValueError("Scheduler isn't ready yet")
+                future = asyncio.run_coroutine_threadsafe(push_enabled_feeds(), NEXT_LOOP)
+                self.json_response(200, future.result(timeout=20))
             elif path == "/api/next":
                 self.json_response(200, request_next())
             elif path == "/api/networks/scan":

@@ -86,7 +86,7 @@
     .feed-group summary .count{color:var(--dim);font-weight:400;margin-left:auto}
     .feed{display:grid;grid-template-columns:44px minmax(120px,.6fr) minmax(220px,1.4fr) 64px 78px;gap:12px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line-soft);transition:background .15s}
     .feed:last-child{border:0}.feed:hover{background:#ffffff05}.feed.off{opacity:.42}
-    .feed img{max-width:40px;max-height:22px;image-rendering:pixelated;image-rendering:crisp-edges;filter:drop-shadow(0 2px 5px #0008)}.feed-name{font-size:12px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.feed-title{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .feed img{max-width:40px;max-height:22px;image-rendering:pixelated;image-rendering:crisp-edges;filter:drop-shadow(0 2px 5px #0008)}.feed.custom img{max-width:10px;max-height:10px;justify-self:center;filter:none}.feed-name{font-size:12px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.feed-title{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .age{font:10px var(--mono);color:var(--dim)}.feed-actions{display:flex;justify-content:flex-end;gap:5px}
     .mini{border:1px solid var(--line);background:transparent;padding:5px 7px;border-radius:7px;color:var(--muted);font:9px var(--mono);cursor:pointer;transition:all .15s var(--ease)}.mini:hover{color:var(--ink);border-color:var(--dim)}.mini.state{min-width:31px}.feed:not(.off) .mini.state{color:var(--green);border-color:#1f4a37;background:#3ddc9710}
     .empty{padding:44px;text-align:center;color:var(--dim);font:12px var(--mono)}
@@ -253,7 +253,7 @@ const GROUP_LABELS={security:"Security",wired:"WIRED",npr:"NPR",verge:"The Verge
 const GROUP_ORDER=["security","wired","npr","verge"];
 const openGroups=new Set(GROUP_ORDER);
 function feedRow(f){
-  return `<div class="feed ${f.enabled?"":"off"}" data-source="${encodeURIComponent(f.source)}">
+  return `<div class="feed ${f.enabled?"":"off"} ${f.stock?"":"custom"}" data-source="${encodeURIComponent(f.source)}">
     <img src="${f.icon}?v=${Date.now()}" alt="${esc(shortName(f.source))} icon" title="${esc(f.source)}"><div class="feed-name">${shortName(f.source)}</div>
     <div class="feed-title" title="${(f.title||"").replaceAll('"',"&quot;")}">${f.title||"No current item"}</div><div class="age">${f.age||"—"}</div>
     <div class="feed-actions"><button class="mini state" data-action="toggle">${f.enabled?"ON":"OFF"}</button>${f.title?'<button class="mini" data-action="show">SHOW</button>':""}${f.editable?'<button class="mini" data-action="edit">•••</button>':""}</div></div>`;
@@ -470,7 +470,7 @@ $("#add-feed").onclick=async event=>{
 $("#feeds").addEventListener("toggle",event=>{const details=event.target.closest(".feed-group");if(!details)return;details.open?openGroups.add(details.dataset.group):openGroups.delete(details.dataset.group)},true);
 $("#badge-form").onsubmit=async event=>{event.preventDefault();try{await api("/api/badge",values(event.target));$("#editor").close();note("Badge updated");load()}catch(error){note(error.message,true)}};
 $("#close-editor").onclick=()=>$("#editor").close();
-$("#push-rss").onclick=async event=>{event.target.disabled=true;note("Fetching and pushing enabled RSS feeds…");try{const d=await api("/api/refresh",{});note(`On the bar · ${shortName(d.source)} · ${d.titles.length} headlines loaded`);await load()}catch(error){note(error.message,true)}event.target.disabled=false};
+$("#push-rss").onclick=async event=>{event.target.disabled=true;note("Refreshing and pushing every enabled RSS feed…");try{const d=await api("/api/rss/push",{});note(d.result==="started"?`On the bar · playing ${d.feeds} enabled feeds`:"Skipped to the next feed");await load()}catch(error){note(error.message,true)}event.target.disabled=false};
 $("#next").onclick=async event=>{event.target.disabled=true;try{const d=await api("/api/next",{});note(`${d.position}/${d.total} · ${shortName(d.source)} — ${d.title}`)}catch(error){note(error.message,true)}event.target.disabled=false};
 $("#refresh").onclick=async event=>{event.target.disabled=true;note("Refreshing enabled sources…");try{const d=await api("/api/preview",{});note(`${d.titles.length} sources refreshed`);load()}catch(error){note(error.message,true)}event.target.disabled=false};
 $("#clock-form").addEventListener("input",previewClockLive);
