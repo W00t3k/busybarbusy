@@ -473,7 +473,8 @@ def mix(a: Pixel, b: Pixel, weight: float) -> Pixel:
     return tuple(round(a[i] + (b[i] - a[i]) * weight) for i in range(3)) + (255,)
 
 
-def wired_logo_png(ai: bool = False) -> bytes:
+def wired_logo_png(accent: Pixel = (226, 26, 34, 255),
+                   secondary: Pixel = (255, 255, 255, 255)) -> bytes:
     """Return a legible 29x9 pixel interpretation of WIRED's tiled wordmark."""
     glyphs = {
         "W": ("101", "101", "101", "111", "101"),
@@ -484,8 +485,6 @@ def wired_logo_png(ai: bool = False) -> bytes:
     }
     width, height = 29, 9
     white, black = (255, 255, 255, 255), (0, 0, 0, 255)
-    accent = (132, 66, 255, 255) if ai else (226, 26, 34, 255)
-    secondary = (46, 224, 255, 255) if ai else white
     pixels = [[black for _ in range(width)] for _ in range(height)]
     for index, letter in enumerate("WIRED"):
         left = index * 6
@@ -770,17 +769,30 @@ def badge_spec(source: str) -> tuple[str, Pixel, Pixel]:
 
 def is_badge_source(source: str) -> bool:
     """True when the source uses the editable badge renderer rather than custom art."""
-    return not (source in ("WIRED", "WIRED AI", "UNLEASHEDFLIP", "HACKER NEWS", "CLOCK")
-                or source.startswith(("NPR ", "VERGE ")))
+    return not (source in ("UNLEASHEDFLIP", "HACKER NEWS", "CLOCK")
+                or source.startswith(("WIRED", "NPR ", "VERGE ")))
+
+
+WIRED_PALETTES = {
+    "WIRED": ((226, 26, 34, 255), (255, 255, 255, 255), "#FFFFFFFF"),
+    "WIRED AI": ((132, 66, 255, 255), (46, 224, 255, 255), "#B8F7FFFF"),
+    "WIRED BUSINESS": ((16, 156, 98, 255), (255, 203, 61, 255), "#D8FFE9FF"),
+    "WIRED CULTURE": ((225, 45, 132, 255), (255, 218, 75, 255), "#FFE2F1FF"),
+    "WIRED SCIENCE": ((32, 108, 232, 255), (96, 238, 180, 255), "#DCEBFFFF"),
+    "WIRED SECURITY": ((220, 38, 38, 255), (255, 125, 48, 255), "#FFE1D8FF"),
+    "WIRED IDEAS": ((126, 71, 210, 255), (255, 177, 139, 255), "#EEE3FFFF"),
+    "WIRED GEAR": ((0, 164, 190, 255), (255, 118, 48, 255), "#D8FAFFFF"),
+    "WIRED GUIDES": ((225, 142, 24, 255), (255, 239, 190, 255), "#FFF4D6FF"),
+}
 
 
 def icon_details(source: str) -> tuple[str, bytes, int, str]:
     if source == "CLOCK":
         return "clock.png", flip_clock_png(), 72, "#F8E8C5FF"
-    if source == "WIRED":
-        return "wired.png", wired_logo_png(False), 32, "#FFFFFFFF"
-    if source == "WIRED AI":
-        return "wired-ai.png", wired_logo_png(True), 32, "#B8F7FFFF"
+    if source.startswith("WIRED"):
+        accent, secondary, color = WIRED_PALETTES.get(source, WIRED_PALETTES["WIRED"])
+        filename = re.sub(r"[^a-z0-9]+", "-", source.lower()).strip("-") + ".png"
+        return filename, wired_logo_png(accent, secondary), 32, color
     if source == "UNLEASHEDFLIP":
         return "flipper.png", pixel_icon_png("flipper"), 16, "#9EEDFFFF"
     if source.startswith("NPR "):
