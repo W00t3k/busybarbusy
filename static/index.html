@@ -148,7 +148,7 @@
           <div class="device" id="device"><span class="marquee" id="marquee">Connecting to BUSY Bar…</span></div>
           <div class="hero-meta"><span>Status <b id="run-state">—</b></span><span>Feeds <b id="feed-count">—</b></span><span>Top bandwidth <b id="top-bandwidth">—</b></span></div>
         </div>
-        <div class="hero-actions"><button class="btn primary" id="next">Next</button><button class="btn" id="refresh">Refresh</button></div>
+        <div class="hero-actions"><button class="btn primary" id="push-rss" title="Fetch enabled feeds and send the current headline to the BUSY Bar">Push RSS</button><button class="btn" id="next">Next</button><button class="btn ghost" id="refresh">Refresh</button></div>
       </section>
       <div class="ministrip" id="ministrip"></div>
       <div class="notice" id="notice">Loading…</div>
@@ -254,7 +254,7 @@ const GROUP_ORDER=["security","wired","npr","verge"];
 const openGroups=new Set(GROUP_ORDER);
 function feedRow(f){
   return `<div class="feed ${f.enabled?"":"off"}" data-source="${encodeURIComponent(f.source)}">
-    <img src="${f.icon}?v=${Date.now()}" alt=""><div class="feed-name">${shortName(f.source)}</div>
+    <img src="${f.icon}?v=${Date.now()}" alt="${esc(shortName(f.source))} icon" title="${esc(f.source)}"><div class="feed-name">${shortName(f.source)}</div>
     <div class="feed-title" title="${(f.title||"").replaceAll('"',"&quot;")}">${f.title||"No current item"}</div><div class="age">${f.age||"—"}</div>
     <div class="feed-actions"><button class="mini state" data-action="toggle">${f.enabled?"ON":"OFF"}</button>${f.title?'<button class="mini" data-action="show">SHOW</button>':""}${f.editable?'<button class="mini" data-action="edit">•••</button>':""}</div></div>`;
 }
@@ -463,6 +463,7 @@ $("#add-feed").onclick=async event=>{
 $("#feeds").addEventListener("toggle",event=>{const details=event.target.closest(".feed-group");if(!details)return;details.open?openGroups.add(details.dataset.group):openGroups.delete(details.dataset.group)},true);
 $("#badge-form").onsubmit=async event=>{event.preventDefault();try{await api("/api/badge",values(event.target));$("#editor").close();note("Badge updated");load()}catch(error){note(error.message,true)}};
 $("#close-editor").onclick=()=>$("#editor").close();
+$("#push-rss").onclick=async event=>{event.target.disabled=true;note("Fetching and pushing enabled RSS feeds…");try{const d=await api("/api/refresh",{});note(`On the bar · ${shortName(d.source)} · ${d.titles.length} headlines loaded`);await load()}catch(error){note(error.message,true)}event.target.disabled=false};
 $("#next").onclick=async event=>{event.target.disabled=true;try{const d=await api("/api/next",{});note(`${d.position}/${d.total} · ${shortName(d.source)} — ${d.title}`)}catch(error){note(error.message,true)}event.target.disabled=false};
 $("#refresh").onclick=async event=>{event.target.disabled=true;note("Refreshing enabled sources…");try{const d=await api("/api/preview",{});note(`${d.titles.length} sources refreshed`);load()}catch(error){note(error.message,true)}event.target.disabled=false};
 $("#clock-form").addEventListener("input",previewClockLive);

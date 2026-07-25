@@ -667,6 +667,49 @@ def badge_logo_png(label: str, background: Pixel, foreground: Pixel) -> bytes:
     return encode_png(pixels)
 
 
+def npr_logo_png() -> bytes:
+    """Render NPR's red/black/blue mini-mark for the tiny BUSY Bar canvas."""
+    colors = ((214, 32, 33, 255), (0, 0, 5, 255), (35, 123, 189, 255))
+    pixels = [[CLEAR for _ in range(17)] for _ in range(9)]
+    for index, (letter, color) in enumerate(zip("NPR", colors)):
+        left = index * 6
+        for y in range(1, 8):
+            for x in range(left, left + 5):
+                pixels[y][x] = color
+        for y, row in enumerate(FONT_3X5[letter]):
+            for x, bit in enumerate(row):
+                if bit == "1":
+                    pixels[y + 2][left + x + 1] = (255, 255, 255, 255)
+    return encode_png(pixels)
+
+
+def verge_logo_png() -> bytes:
+    """Render a compact neon Verge-style split V."""
+    cyan, magenta, orange = ((42, 220, 220, 255), (232, 39, 113, 255),
+                             (255, 112, 35, 255))
+    pixels = [[CLEAR for _ in range(13)] for _ in range(11)]
+    for step in range(5):
+        pixels[step + 1][step + 1] = cyan
+        pixels[step + 1][step + 2] = cyan
+        pixels[step + 1][11 - step] = magenta
+        pixels[step + 1][10 - step] = magenta
+    for step in range(4):
+        pixels[6 + step][5 + step // 2] = orange
+        pixels[6 + step][7 - step // 2] = orange
+    pixels[10][6] = orange
+    return encode_png(pixels)
+
+
+def hacker_news_logo_png() -> bytes:
+    """Render Hacker News' familiar orange tile with a white Y."""
+    orange, white = (255, 102, 0, 255), (255, 255, 255, 255)
+    pixels = [[orange for _ in range(9)] for _ in range(9)]
+    for y, x_values in enumerate(((2, 6), (2, 6), (3, 5), (3, 5), (4,), (4,), (4,))):
+        for x in x_values:
+            pixels[y + 1][x] = white
+    return encode_png(pixels)
+
+
 BADGES = {
     "DARKNET DIARIES": ("DD", (13, 13, 18, 255), (255, 48, 73, 255)),
     "GRAHAM CLULEY": ("GC", (20, 72, 110, 255), (255, 255, 255, 255)),
@@ -727,7 +770,8 @@ def badge_spec(source: str) -> tuple[str, Pixel, Pixel]:
 
 def is_badge_source(source: str) -> bool:
     """True when the source uses the editable badge renderer rather than custom art."""
-    return source not in ("WIRED", "WIRED AI", "UNLEASHEDFLIP", "CLOCK")
+    return not (source in ("WIRED", "WIRED AI", "UNLEASHEDFLIP", "HACKER NEWS", "CLOCK")
+                or source.startswith(("NPR ", "VERGE ")))
 
 
 def icon_details(source: str) -> tuple[str, bytes, int, str]:
@@ -739,6 +783,12 @@ def icon_details(source: str) -> tuple[str, bytes, int, str]:
         return "wired-ai.png", wired_logo_png(True), 32, "#B8F7FFFF"
     if source == "UNLEASHEDFLIP":
         return "flipper.png", pixel_icon_png("flipper"), 16, "#9EEDFFFF"
+    if source.startswith("NPR "):
+        return "npr.png", npr_logo_png(), 20, "#FFFFFFFF"
+    if source.startswith("VERGE "):
+        return "verge.png", verge_logo_png(), 16, "#FFFFFFFF"
+    if source == "HACKER NEWS":
+        return "hacker-news.png", hacker_news_logo_png(), 12, "#FFFFFFFF"
     label, background, foreground = badge_spec(source)
     filename = re.sub(r"[^a-z0-9]+", "-", source.lower()).strip("-") + ".png"
     return (filename, badge_logo_png(label, background, foreground),

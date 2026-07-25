@@ -1,38 +1,86 @@
-# Busy RSS
+# BUSYBARBUSY
 
-A small, dependency-free RSS/Atom reader for the LaMetric BUSY Bar HTTP API. It shows a clean feed label and one scrolling headline at a time through `/api/display/draw`. It does not use or change the BUSY timer.
+> A tiny RSS command center for the LaMetric BUSY Bar.
 
-## Run
+Turn RSS and Atom feeds into a live, pixel-perfect headline ticker—with source
+icons, freshness-colored LEDs, a flip clock, and direct control from a polished
+local dashboard.
+
+## What it does
+
+- Pushes the newest enabled RSS headline to the BUSY Bar on demand
+- Gives every built-in or custom feed its own generated pixel icon
+- Rotates multiple sources or pins one favorite feed
+- Colors the LED strip by freshness: green, amber, orange, slate, or gray
+- Supports one-click per-source display, preview-only refreshes, and scheduled runs
+- Includes a retro flip clock and local network views
+- Runs without third-party Python packages
+
+## Quick start
 
 Requires Python 3.9 or newer.
 
 ```sh
+git clone https://github.com/W00t3k/busybarbusy.git
+cd busybarbusy
 ./run.sh
 ```
 
-The launcher creates `.venv` on first run and executes the service with that environment's Python.
+The launcher creates `.venv` on first run. Open <http://localhost:8090>, configure
+your BUSY Bar connection, enable the sources you want, and choose an action:
 
-Open <http://localhost:8090>, enter a feed URL, preview it, and click **Show now**. Enable **Run automatically** when the display looks right. Settings are saved to `config.json` (ignored by Git because it may contain the API key).
+- **Push RSS** fetches enabled feeds and immediately sends the current headline
+  to the bar.
+- **Next** advances to the next loaded headline.
+- **Refresh** fetches a preview without changing the display.
+- **Show** pushes one specific source.
 
-The default device address is `http://192.168.2.199`. Priority 50 allows normal built-in apps to be replaced but does not interrupt an active BUSY/CUSTOM session, whose priority is 90. Use priority 90 or higher only if interruption is intended.
+Settings are saved to `config.json`. That file is intentionally ignored because
+it can contain device, router, and API credentials.
 
-Each headline scrolls as `SOURCE | title | age | position/total`, for example `KREBS | Patch Tuesday fixes 137 flaws | 2h | 3/16`. Set `show_meta` to `false` to display the bare headline.
+## Pixel feed icons
 
-The LED strip is colour-coded by item age when `led_mode` is `freshness` (the default): green under an hour, amber under six hours, orange within a day, slate for older items, and grey when the feed publishes no date. Set `led_mode` to `fixed` to use the single `led_color` value instead.
+Every source gets a compact icon suited to the BUSY Bar display. Built-in brands
+use hand-tuned artwork or badges; any feed you add receives a stable,
+automatically generated badge. Editable badges can be customized from the
+source row in the dashboard.
+
+## Display behavior
+
+The default device address is `http://192.168.2.199`. Priority `50` lets normal
+built-in apps replace the ticker but does not interrupt an active BUSY/CUSTOM
+session at priority `90`. Use priority `90` or higher only when interruption is
+intentional.
+
+Headlines can include source, age, and queue position:
+
+```text
+KREBS | Patch Tuesday fixes 137 flaws | 2h | 3/16
+```
+
+Disable `show_meta` for a bare headline. In `freshness` LED mode, stories under
+an hour are green, under six hours amber, under a day orange, older stories
+slate, and undated stories gray. Use `fixed` mode for one constant LED color.
+
+## Configuration
 
 Environment variables:
 
-- `PORT`: web UI port (default `8090`)
-- `BUSY_RSS_CONFIG`: alternate settings file path
+- `PORT` — dashboard port (default `8090`)
+- `BUSY_RSS_CONFIG` — alternate settings file path
 
-## API
+## HTTP API
 
-- `GET /api/config` — configuration and last-run status (never returns the API key)
-- `POST /api/config` — save configuration
-- `POST /api/preview` — fetch and parse the feed without touching the display
-- `POST /api/refresh` — fetch and show the current headlines
-- `GET /api/logs` — recent fetch, display, duration, and error logs for every feed
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/config` | Configuration and last-run status; secrets are omitted |
+| `POST` | `/api/config` | Save configuration |
+| `GET` | `/api/feeds` | Feed catalogue, state, headlines, and icon URLs |
+| `POST` | `/api/preview` | Fetch and parse enabled feeds without changing the display |
+| `POST` | `/api/refresh` | Fetch enabled feeds and push the selected headline |
+| `POST` | `/api/show` | Push one selected source |
+| `GET` | `/api/logs` | Recent fetch, display, timing, and error logs |
 
-Logs are written to `busy-rss.log` with automatic rotation at 1 MB (three backups).
-
-RSS content is normalized to printable ASCII because BUSY Bar bitmap fonts do not accept Unicode. The service must stay running for scheduled updates.
+Logs rotate automatically at 1 MB with three backups. Feed text is normalized
+to printable ASCII for BUSY Bar bitmap-font compatibility. Keep the service
+running for scheduled updates and physical-button actions.
