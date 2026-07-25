@@ -773,6 +773,11 @@ def is_badge_source(source: str) -> bool:
                 or source.startswith(("WIRED", "NPR ", "VERGE ")))
 
 
+def source_slug(source: str) -> str:
+    """Return one safe, stable asset stem for a feed source."""
+    return re.sub(r"[^a-z0-9]+", "-", source.lower()).strip("-") or "rss"
+
+
 WIRED_PALETTES = {
     "WIRED": ((226, 26, 34, 255), (255, 255, 255, 255), "#FFFFFFFF"),
     "WIRED AI": ((132, 66, 255, 255), (46, 224, 255, 255), "#B8F7FFFF"),
@@ -791,18 +796,18 @@ def icon_details(source: str) -> tuple[str, bytes, int, str]:
         return "clock.png", flip_clock_png(), 72, "#F8E8C5FF"
     if source.startswith("WIRED"):
         accent, secondary, color = WIRED_PALETTES.get(source, WIRED_PALETTES["WIRED"])
-        filename = re.sub(r"[^a-z0-9]+", "-", source.lower()).strip("-") + ".png"
+        filename = source_slug(source) + "-pixel-v2.png"
         return filename, wired_logo_png(accent, secondary), 32, color
     if source == "UNLEASHEDFLIP":
         return "flipper.png", pixel_icon_png("flipper"), 16, "#9EEDFFFF"
     if source.startswith("NPR "):
-        return "npr.png", npr_logo_png(), 20, "#FFFFFFFF"
+        return "npr-pixel-v2.png", npr_logo_png(), 20, "#FFFFFFFF"
     if source.startswith("VERGE "):
-        return "verge.png", verge_logo_png(), 16, "#FFFFFFFF"
+        return "verge-pixel-v2.png", verge_logo_png(), 16, "#FFFFFFFF"
     if source == "HACKER NEWS":
-        return "hacker-news.png", hacker_news_logo_png(), 12, "#FFFFFFFF"
+        return "hacker-news-pixel-v2.png", hacker_news_logo_png(), 12, "#FFFFFFFF"
     label, background, foreground = badge_spec(source)
-    filename = re.sub(r"[^a-z0-9]+", "-", source.lower()).strip("-") + ".png"
+    filename = source_slug(source) + ".png"
     return (filename, badge_logo_png(label, background, foreground),
             badge_width(label) + 3, "#E8FFF1FF")
 
@@ -925,7 +930,17 @@ def send_to_device(config: Config, item: Headline, position: int = 0, total: int
     clear_url = url + "?" + urllib.parse.urlencode({"application_name": "busy_rss"})
     request(clear_url, headers=headers, method="DELETE")
     payload = display_payload(config, item, position, total)
-    result = request(url, data=json.dumps(payload).encode(), headers=headers)
+    try:
+        result = request(url, data=json.dumps(payload).encode(), headers=headers)
+    except urllib.error.HTTPError as exc:
+        if exc.code != 409:
+            raise
+        # An explicit feed push is allowed to replace our own priority-100 clock.
+        # Clear that layer only after the new feed icon is safely uploaded, then
+        # retry once so the display transition remains as close to atomic as the
+        # firmware permits.
+        clear_app(config, "busy_clock")
+        result = request(url, data=json.dumps(payload).encode(), headers=headers)
     parsed = json.loads(result or b"{}")
     LOGGER.info("display.ok source=%s age=%s position=%d/%d title=%r result=%s",
                 item.source, format_age(item.published) or "-", position, total, item.title, parsed)
@@ -1131,6 +1146,8 @@ class State:
     def refresh(self, send: bool = True) -> dict:
         with self.lock:
             config = self.config
+            if send:
+                self.clock_active = False
         try:
             items, errors = asyncio.run(fetch_all_feeds())
             if not items:
@@ -2545,7 +2562,10 @@ class Handler(BaseHTTPRequestHandler):
                     overrides[name] = query[name]
             if overrides:
                 config = replace(config, **overrides)
-            body = flip_clock_png(config=config)
+            blink_interval = max(0.25, float(config.clock_blink_seconds))
+            dot_on = (not config.clock_blink or
+                      int(time.time() / blink_interval) % 2 == 0)
+            body = flip_clock_png(config=config, dot_on=dot_on)
             self.send_response(200)
             self.send_header("Content-Type", "image/png")
             self.send_header("Content-Length", str(len(body)))

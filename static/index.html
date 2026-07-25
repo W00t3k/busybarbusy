@@ -84,9 +84,9 @@
     .feed-group summary::-webkit-details-marker{display:none}.feed-group summary::marker{content:""}
     .feed-group summary:before{content:"▸";color:var(--accent);transition:transform .2s var(--ease)}.feed-group[open] summary:before{transform:rotate(90deg)}
     .feed-group summary .count{color:var(--dim);font-weight:400;margin-left:auto}
-    .feed{display:grid;grid-template-columns:24px minmax(120px,.6fr) minmax(220px,1.4fr) 64px 78px;gap:12px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line-soft);transition:background .15s}
+    .feed{display:grid;grid-template-columns:44px minmax(120px,.6fr) minmax(220px,1.4fr) 64px 78px;gap:12px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line-soft);transition:background .15s}
     .feed:last-child{border:0}.feed:hover{background:#ffffff05}.feed.off{opacity:.42}
-    .feed img{max-width:22px;max-height:16px;image-rendering:pixelated}.feed-name{font-size:12px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.feed-title{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .feed img{max-width:40px;max-height:22px;image-rendering:pixelated;image-rendering:crisp-edges;filter:drop-shadow(0 2px 5px #0008)}.feed-name{font-size:12px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.feed-title{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .age{font:10px var(--mono);color:var(--dim)}.feed-actions{display:flex;justify-content:flex-end;gap:5px}
     .mini{border:1px solid var(--line);background:transparent;padding:5px 7px;border-radius:7px;color:var(--muted);font:9px var(--mono);cursor:pointer;transition:all .15s var(--ease)}.mini:hover{color:var(--ink);border-color:var(--dim)}.mini.state{min-width:31px}.feed:not(.off) .mini.state{color:var(--green);border-color:#1f4a37;background:#3ddc9710}
     .empty{padding:44px;text-align:center;color:var(--dim);font:12px var(--mono)}
@@ -117,7 +117,7 @@
     @media(max-width:820px){.client{grid-template-columns:minmax(120px,1fr) 70px}.client .optional,.client>span{display:none}}
     dialog{border:1px solid var(--line);border-radius:16px;background:linear-gradient(165deg,#121316,#0d0e10);color:var(--ink);padding:0;width:min(420px,calc(100% - 30px));box-shadow:0 32px 90px -20px #000c}dialog::backdrop{background:#000c;backdrop-filter:blur(6px)}.modal{padding:20px}
     @media(prefers-reduced-motion:reduce){*,.view{animation:none!important;transition:none!important}}
-    @media(max-width:820px){.shell{grid-template-columns:1fr}.sidebar{position:static}.sidebar nav{display:flex;overflow:auto}.sidebar nav button{width:auto;white-space:nowrap;border-left:0;border-bottom:2px solid transparent}.sidebar nav button.on{border-bottom-color:var(--accent)}.side-rule,.side-note{display:none}.feed{grid-template-columns:22px minmax(100px,1fr) 62px 72px}.feed-title{display:none}.form-grid{grid-template-columns:1fr}.card.full{grid-column:auto}.net-summary{grid-template-columns:repeat(2,1fr)}.network{grid-template-columns:minmax(130px,1fr) 70px 60px}.network .optional{display:none}}
+    @media(max-width:820px){.shell{grid-template-columns:1fr}.sidebar{position:static}.sidebar nav{display:flex;overflow:auto}.sidebar nav button{width:auto;white-space:nowrap;border-left:0;border-bottom:2px solid transparent}.sidebar nav button.on{border-bottom-color:var(--accent)}.side-rule,.side-note{display:none}.feed{grid-template-columns:40px minmax(100px,1fr) 62px 72px}.feed-title{display:none}.form-grid{grid-template-columns:1fr}.card.full{grid-column:auto}.net-summary{grid-template-columns:repeat(2,1fr)}.network{grid-template-columns:minmax(130px,1fr) 70px 60px}.network .optional{display:none}}
     @media(max-width:540px){.app{width:min(100% - 18px,1180px);padding-top:12px}.hero{grid-template-columns:1fr}.hero-actions{flex-direction:row}.health{display:none}.feeds .feed{padding:10px}.chips{width:100%;overflow:auto}}
     @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
   </style>
@@ -284,6 +284,13 @@ function previewClockLive(){
   query.set("v",Date.now());
   $("#clock-image").src="/api/clock/image?"+query.toString();
 }
+let clockPreviewTimer=0;
+function setClockPreviewActive(active){
+  clearInterval(clockPreviewTimer);clockPreviewTimer=0;
+  if(!active)return;
+  previewClockLive();
+  clockPreviewTimer=setInterval(previewClockLive,500);
+}
 function renderPresets(){
   const presets=config.clock_presets||{},names=Object.keys(presets);
   $("#preset-list").innerHTML=names.length?names.map(name=>`<div style="display:flex;align-items:center;gap:8px">
@@ -437,7 +444,7 @@ async function loadNetworks(scan=false){
   }catch(error){note(error.message,true)}
 }
 let routerAutoLoaded=false,netAutoScanned=false;
-$("#nav").onclick=event=>{const button=event.target.closest("button");if(!button)return;document.querySelectorAll("#nav button").forEach(x=>x.classList.toggle("on",x===button));document.querySelectorAll(".view").forEach(x=>x.classList.toggle("on",x.id==="view-"+button.dataset.view));if(button.dataset.view==="logs")loadLogs();if(button.dataset.view==="networks"){loadNetworks();if(!routerAutoLoaded){routerAutoLoaded=true;loadRouterOverview()}if(!netAutoScanned){netAutoScanned=true;loadNetworks(true)}}};
+$("#nav").onclick=event=>{const button=event.target.closest("button");if(!button)return;const view=button.dataset.view;document.querySelectorAll("#nav button").forEach(x=>x.classList.toggle("on",x===button));document.querySelectorAll(".view").forEach(x=>x.classList.toggle("on",x.id==="view-"+view));setClockPreviewActive(view==="clock");if(view==="logs")loadLogs();if(view==="networks"){loadNetworks();if(!routerAutoLoaded){routerAutoLoaded=true;loadRouterOverview()}if(!netAutoScanned){netAutoScanned=true;loadNetworks(true)}}};
 $("#chips").onclick=event=>{const chip=event.target.closest(".chip");if(!chip)return;filter=chip.dataset.filter;document.querySelectorAll(".chip").forEach(x=>x.classList.toggle("on",x===chip));render()};
 $("#search").oninput=render;
 $("#feeds").onclick=async event=>{const row=event.target.closest(".feed"),button=event.target.closest("button");if(!row||!button)return;const source=decodeURIComponent(row.dataset.source),feed=feeds.find(f=>f.source===source);try{
