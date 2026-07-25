@@ -2005,18 +2005,17 @@ def human_bytes(n) -> str:
     return f"{n:.0f}TB"
 
 
-def bar_two_line_png(config: Config, line1: str, line2: str, accent: bool = True) -> bytes:
-    """Two centred lines on the 72x16 bar — reuses the AP-card renderer's glyph
-    path but with arbitrary text, for client/throughput screens."""
-    network = {"ssid": line1, "signal": line2, "unit": ""}
-    background = hex_to_pixel(config.clock_background[:7])
-    foreground = hex_to_pixel(config.clock_accent[:7]) if accent else (255, 255, 255, 255)
+def bar_two_line_png(line1: str, line2: str) -> bytes:
+    """Render client data in a fixed Flipper-inspired orange/white palette."""
+    background = (5, 5, 6, 255)
+    orange = (255, 130, 0, 255)
+    white = (255, 255, 255, 255)
     pixels = [[background for _ in range(72)] for _ in range(16)]
     extra = {"-": ("000", "000", "111", "000", "000"), "|": ("010", "010", "010", "010", "010"),
              " ": ("000", "000", "000", "000", "000"), ".": ("000", "000", "000", "000", "010"),
              "/": ("001", "001", "010", "100", "100"), ":": ("000", "010", "000", "010", "000")}
 
-    def draw_line(text: str, y: int) -> None:
+    def draw_line(text: str, y: int, color: Pixel) -> None:
         text = clean_text(text).upper()[:18]
         width = max(0, len(text) * 4 - 1)
         left = max(0, (72 - width) // 2)
@@ -2025,21 +2024,21 @@ def bar_two_line_png(config: Config, line1: str, line2: str, accent: bool = True
             for gy, row in enumerate(glyph):
                 for gx, bit in enumerate(row):
                     if bit == "1" and left + index * 4 + gx < 72:
-                        pixels[y + gy][left + index * 4 + gx] = foreground
+                        pixels[y + gy][left + index * 4 + gx] = color
 
-    draw_line(line1, 2)
-    draw_line(line2, 9)
+    draw_line(line1, 2, orange)
+    draw_line(line2, 9, white)
     return encode_png(pixels)
 
 
-def send_bar_screen(config: Config, line1: str, line2: str, slot: int, accent: bool = True) -> None:
+def send_bar_screen(config: Config, line1: str, line2: str, slot: int) -> None:
     """Push one two-line client screen to the bar (same atomic swap as AP cards)."""
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     if config.api_key:
         headers["X-API-Key"] = config.api_key
     base = config.device_url.rstrip("/")
     filename = f"client-{slot}.png"
-    upload_clock_asset(config, bar_two_line_png(config, line1, line2, accent), filename)
+    upload_clock_asset(config, bar_two_line_png(line1, line2), filename)
     payload = {"application_name": "busy_clock", "priority": 100, "elements": [{
         "id": "flip-clock", "type": "image", "path": filename,
         "align": "top_left", "x": 0, "y": 0, "display": "front", "opacity": 100, "timeout": 0,
@@ -2061,14 +2060,14 @@ def client_bar_screens(overview: dict) -> list:
     screens = []
     if clients:
         top = max(clients, key=lambda c: c["bytes_rx"] + c["bytes_tx"])
-        screens.append((top["name"], human_bytes(top["bytes_rx"] + top["bytes_tx"]), True))
+        screens.append((f"TOP: {top['name']}", human_bytes(top["bytes_rx"] + top["bytes_tx"])))
     total_rx = sum(c["bytes_rx"] for c in overview.get("clients", []))
     total_tx = sum(c["bytes_tx"] for c in overview.get("clients", []))
-    screens.append((f"D {human_bytes(total_rx)}", f"U {human_bytes(total_tx)}", False))
+    screens.append((f"D {human_bytes(total_rx)}", f"U {human_bytes(total_tx)}"))
     hist = overview.get("history_rates") or []
     dl = hist[0][-1] if len(hist) > 0 and hist[0] else 0
     ul = hist[1][-1] if len(hist) > 1 and hist[1] else 0
-    screens.append(("NET NOW", f"D {human_bytes(dl)} U {human_bytes(ul)}", True))
+    screens.append(("NET NOW", f"D {human_bytes(dl)} U {human_bytes(ul)}"))
     return screens
 
 
@@ -2076,11 +2075,11 @@ def show_clients_now(config: Config) -> dict:
     """GUI-triggered: pull router client data and cycle the client screens on the bar."""
     with STATE.lock:
         STATE.clock_active = False
-    send_bar_screen(config, "LOADING", "CLIENTS", 0, True)
+    send_bar_screen(config, "LOADING", "CLIENTS", 0)
     overview = fetch_router_overview(config)
     screens = client_bar_screens(overview)
-    for slot, (l1, l2, accent) in enumerate(screens, 1):
-        send_bar_screen(config, l1, l2, slot, accent)
+    for slot, (l1, l2) in enumerate(screens, 1):
+        send_bar_screen(config, l1, l2, slot)
         time.sleep(3)
     active = sum(1 for c in overview.get("clients", []) if c.get("active"))
     LOGGER.info("clients.show active=%d screens=%d", active, len(screens))
@@ -2269,7 +2268,7 @@ async def auto_play_digest() -> None:
         # Client info stage — busiest active device, overall down/up, live rate.
         # Login round-trip takes a moment; paint a placeholder so there's no gap.
         try:
-            await asyncio.to_thread(send_bar_screen, config, "LOADING", "CLIENTS", 0, True)
+            await asyncio.to_thread(send_bar_screen, config, "LOADING", "CLIENTS", 0)
         except Exception as exc:
             LOGGER.warning("rss.autoplay.client_placeholder_failed error=%s", exc)
         try:
@@ -2278,9 +2277,9 @@ async def auto_play_digest() -> None:
         except Exception as exc:
             LOGGER.warning("rss.autoplay.client_fetch_failed error=%s", exc)
             screens = [("NO ROUTER", "DATA", True)]
-        for slot, (l1, l2, accent) in enumerate(screens, 1):
+        for slot, (l1, l2) in enumerate(screens, 1):
             try:
-                await asyncio.to_thread(send_bar_screen, config, l1, l2, slot, accent)
+                await asyncio.to_thread(send_bar_screen, config, l1, l2, slot)
                 LOGGER.info("rss.autoplay.client slot=%d %r / %r", slot, l1, l2)
             except Exception as exc:
                 LOGGER.warning("rss.autoplay.client_failed error=%s", exc)
