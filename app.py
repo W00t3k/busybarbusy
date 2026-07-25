@@ -1658,6 +1658,7 @@ _ROUTER_ADD_ROD_RE = re.compile(r'addROD\("(?P<key>[^"]+)",\s*(?P<val>.*?)\);\s*
 # that slot and the loser's token/session gets invalidated mid-flight (403).
 # Serialize every router fetch through this lock so we never race ourselves.
 _ROUTER_LOCK = threading.Lock()
+_ROUTER_TLS_HOSTNAME = "mynetworksettings.com"
 
 
 def _router_arc_md5(s: str) -> str:
@@ -1724,6 +1725,21 @@ def _router_opener() -> urllib.request.OpenerDirector:
     )
 
 
+def _router_headers(config: Config, extra: Optional[dict[str, str]] = None) -> dict[str, str]:
+    """Match the CR1000A web client's hostname-aware request headers."""
+    base = config.router_url.rstrip("/")
+    headers = {"Referer": base + "/"}
+    hostname = urllib.parse.urlparse(base).hostname or ""
+    try:
+        socket.inet_pton(socket.AF_INET6 if ":" in hostname else socket.AF_INET, hostname)
+        headers["Host"] = _ROUTER_TLS_HOSTNAME
+    except OSError:
+        pass
+    if extra:
+        headers.update(extra)
+    return headers
+
+
 def _router_open(opener: urllib.request.OpenerDirector, req: urllib.request.Request, stage: str):
     try:
         return opener.open(req, timeout=10)
@@ -1743,7 +1759,7 @@ def _router_login(config: Config) -> urllib.request.OpenerDirector:
         raise ValueError("Router admin password isn't saved — add it in Settings first")
     base = config.router_url.rstrip("/")
     opener = _router_opener()
-    headers = {"Referer": base + "/"}
+    headers = _router_headers(config)
     status_req = urllib.request.Request(base + "/loginStatus.cgi", headers=headers)
     with _router_open(opener, status_req, "login_status") as resp:
         status = json.loads(resp.read())
@@ -1751,13 +1767,14 @@ def _router_login(config: Config) -> urllib.request.OpenerDirector:
     token = status.get("loginToken")
     if not isinstance(token, str) or len(token) != 32:
         raise RuntimeError("Router didn't return a login token — wrong address, or firmware differs")
+    token = token.lower()
     luci_username = _router_arc_md5(config.router_username)
     luci_password = hashlib.sha512((token + _router_arc_md5(config.router_password)).encode("ascii")).hexdigest()
     payload = urllib.parse.urlencode({
         "luci_username": luci_username, "luci_password": luci_password,
-        # "Remember me" — combined with session reuse above, this should mean
-        # far fewer logins hitting the router overall (fewer to exhaust the cap).
-        "luci_view": "Mobile", "luci_token": token, "luci_keep_login": "1",
+        # Match verizon-router-client's safe default. Persistent sessions survive
+        # app restarts and eventually exhaust the router's small session table.
+        "luci_view": "Mobile", "luci_token": token, "luci_keep_login": "0",
     }).encode()
     login_req = urllib.request.Request(
         base + "/login.cgi", data=payload,
@@ -1772,7 +1789,7 @@ def _router_login(config: Config) -> urllib.request.OpenerDirector:
     return opener
 
 
-_router_session: dict = {"opener": None}
+_router_session: dict = {"opener": None, "retry_after": 0.0, "auth_error": ""}
 
 
 def _router_get_session(config: Config) -> urllib.request.OpenerDirector:
@@ -1782,27 +1799,40 @@ def _router_get_session(config: Config) -> urllib.request.OpenerDirector:
     frequent polling exhausted that cap and login.cgi started intermittently
     rejecting valid credentials (flag: 2 / 403), even with luci_keep_login=0.
     """
+    if time.monotonic() < _router_session["retry_after"]:
+        raise RuntimeError(_router_session["auth_error"])
     opener = _router_session.get("opener")
     if opener is not None:
         try:
             base = config.router_url.rstrip("/")
-            status_req = urllib.request.Request(base + "/loginStatus.cgi", headers={"Referer": base + "/"})
+            status_req = urllib.request.Request(base + "/loginStatus.cgi",
+                                                headers=_router_headers(config))
             with _router_open(opener, status_req, "session_check") as resp:
                 status = json.loads(resp.read())
             if status.get("islogin") in (1, "1", True):
                 return opener
         except Exception:
             pass
-    opener = _router_login(config)
+    try:
+        opener = _router_login(config)
+    except urllib.error.HTTPError as exc:
+        if exc.code != 403:
+            raise
+        message = ("Router rejected the admin login (403). Login persistence is now disabled; "
+                   "wait for old sessions to expire or sign out of the router UI, then retry.")
+        _router_session.update(opener=None, retry_after=time.monotonic() + 60,
+                               auth_error=message)
+        raise RuntimeError(message) from exc
     _router_session["opener"] = opener
+    _router_session["retry_after"] = 0.0
+    _router_session["auth_error"] = ""
     return opener
 
 
 def _router_get(opener: urllib.request.OpenerDirector, config: Config, path: str) -> str:
     base = config.router_url.rstrip("/")
     req = urllib.request.Request(base + path, headers={
-        "Referer": base + "/", "Accept": "application/json, text/plain, */*",
-    })
+        **_router_headers(config), "Accept": "application/json, text/plain, */*"})
     with _router_open(opener, req, "get_" + path.strip("/").replace("/", "_")) as resp:
         return resp.read().decode("utf-8", "replace")
 
