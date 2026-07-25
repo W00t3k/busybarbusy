@@ -164,6 +164,7 @@ class Config:
     router_url: str = "https://192.168.2.1"
     router_username: str = "admin"
     router_password: str = ""
+    router_sysauth: str = ""  # reusable authenticated session cookie
     interval_minutes: int = 15
     item_seconds: int = 12
     max_items: int = 5
@@ -1735,6 +1736,8 @@ def _router_headers(config: Config, extra: Optional[dict[str, str]] = None) -> d
         headers["Host"] = _ROUTER_TLS_HOSTNAME
     except OSError:
         pass
+    if config.router_sysauth:
+        headers["Cookie"] = f"sysauth={config.router_sysauth}"
     if extra:
         headers.update(extra)
     return headers
@@ -1786,6 +1789,14 @@ def _router_login(config: Config) -> urllib.request.OpenerDirector:
                  if isinstance(handler, urllib.request.HTTPCookieProcessor)
                  for c in handler.cookiejar]
     LOGGER.info("router.login_post.ok body=%r cookies=%s", body[:200], jar_names)
+    sysauth = next((cookie.value for handler in opener.handlers
+                    if isinstance(handler, urllib.request.HTTPCookieProcessor)
+                    for cookie in handler.cookiejar if cookie.name == "sysauth"), "")
+    if sysauth:
+        with STATE.lock:
+            STATE.config.router_sysauth = sysauth
+            save_config(STATE.config)
+        LOGGER.info("router.session_token.saved")
     return opener
 
 
@@ -1802,6 +1813,8 @@ def _router_get_session(config: Config) -> urllib.request.OpenerDirector:
     if time.monotonic() < _router_session["retry_after"]:
         raise RuntimeError(_router_session["auth_error"])
     opener = _router_session.get("opener")
+    if opener is None and config.router_sysauth:
+        opener = _router_opener()
     if opener is not None:
         try:
             base = config.router_url.rstrip("/")
@@ -1810,6 +1823,7 @@ def _router_get_session(config: Config) -> urllib.request.OpenerDirector:
             with _router_open(opener, status_req, "session_check") as resp:
                 status = json.loads(resp.read())
             if status.get("islogin") in (1, "1", True):
+                _router_session["opener"] = opener
                 return opener
         except Exception:
             pass
@@ -1827,6 +1841,36 @@ def _router_get_session(config: Config) -> urllib.request.OpenerDirector:
     _router_session["retry_after"] = 0.0
     _router_session["auth_error"] = ""
     return opener
+
+
+def _router_keepalive_once(config: Config) -> None:
+    """Touch loginStatus through the cached sysauth session without relogging."""
+    if not config.router_sysauth:
+        return
+    with _ROUTER_LOCK:
+        opener = _router_get_session(config)
+        base = config.router_url.rstrip("/")
+        req = urllib.request.Request(base + "/loginStatus.cgi",
+                                     headers=_router_headers(config))
+        with _router_open(opener, req, "keepalive") as resp:
+            status = json.loads(resp.read())
+        if status.get("islogin") not in (1, "1", True):
+            raise RuntimeError("Router session token is no longer authenticated")
+        LOGGER.info("router.keepalive.ok")
+
+
+async def router_keepalive() -> None:
+    """Keep one token-backed router session alive instead of creating new sessions."""
+    while True:
+        with STATE.lock:
+            config = STATE.config
+            enabled = bool(config.router_sysauth)
+        if enabled:
+            try:
+                await asyncio.to_thread(_router_keepalive_once, config)
+            except Exception as exc:
+                LOGGER.warning("router.keepalive.failed error=%s", exc)
+        await asyncio.sleep(45)
 
 
 def _router_get(opener: urllib.request.OpenerDirector, config: Config, path: str) -> str:
@@ -2606,7 +2650,7 @@ async def scheduler() -> None:
     AUTO_PLAY_SKIP_EVENT = asyncio.Event()
     await asyncio.gather(warm_button_digest(), feed_refresher(), headline_rotator(), clock_updater(),
                          custom_control_monitor(), custom_selector_monitor(),
-                         hourly_light_scheduler())
+                         hourly_light_scheduler(), router_keepalive())
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -2649,6 +2693,7 @@ class Handler(BaseHTTPRequestHandler):
                 config = asdict(STATE.config)
                 config["api_key"] = ""  # never echo secrets into the browser
                 config["router_password"] = ""
+                config["router_sysauth"] = ""
                 status = {"last_run": STATE.last_run, "last_error": STATE.last_error,
                           "last_source": STATE.last_source, "last_titles": STATE.last_titles,
                           "clock_active": STATE.clock_active}
@@ -2758,6 +2803,8 @@ class Handler(BaseHTTPRequestHandler):
                         body.pop("api_key", None)
                     if not body.get("router_password"):
                         body.pop("router_password", None)
+                    if not body.get("router_sysauth"):
+                        body.pop("router_sysauth", None)
                     current.update(body)
                     config = Config(**current)
                     validate_config(config)

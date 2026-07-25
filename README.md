@@ -38,6 +38,10 @@ your BUSY Bar connection, enable the sources you want, and choose an action:
 Settings are saved to `config.json`. That file is intentionally ignored because
 it can contain device, router, and API credentials.
 
+Router access prefers a saved CR1000A `sysauth` session token and keeps that
+single session alive. The admin password is used only to bootstrap a replacement
+token when no valid session exists.
+
 ## Pixel feed icons
 
 Every source gets a compact icon suited to the BUSY Bar display. Built-in
