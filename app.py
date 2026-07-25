@@ -834,9 +834,7 @@ PUBLISHER_FAVICONS = {
 def publisher_favicon(source: str) -> Optional[Path]:
     """Resolve a built-in feed to its publisher-provided favicon asset."""
     filename = PUBLISHER_FAVICONS.get(source)
-    if source.startswith("WIRED"):
-        filename = "wired.png"
-    elif source.startswith("NPR "):
+    if source.startswith("NPR "):
         filename = "npr.png"
     elif source.startswith("VERGE "):
         filename = "the-verge.png"

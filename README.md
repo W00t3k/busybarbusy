@@ -41,9 +41,10 @@ it can contain device, router, and API credentials.
 ## Pixel feed icons
 
 Every source gets a compact icon suited to the BUSY Bar display. Built-in
-publishers use locally bundled derivatives of their official favicons; any feed
-you add receives a tiny white RSS glyph. The same asset is used in the web
-source list and uploaded to the physical display.
+publishers use locally bundled derivatives of their official favicons, while
+all WIRED feeds retain the full tiled wordmark with category-specific
+colorways. Any feed you add receives a tiny white RSS glyph. The same asset is
+used in the web source list and uploaded to the physical display.
 
 ## Display behavior
 
