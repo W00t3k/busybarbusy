@@ -148,7 +148,7 @@
           <div class="device" id="device"><span class="marquee" id="marquee">Connecting to BUSY Bar…</span></div>
           <div class="hero-meta"><span>Status <b id="run-state">—</b></span><span>Feeds <b id="feed-count">—</b></span><span>Top bandwidth <b id="top-bandwidth">—</b></span></div>
         </div>
-        <div class="hero-actions"><button class="btn primary" id="push-rss" title="Fetch enabled feeds and send the current headline to the BUSY Bar">Push RSS</button><button class="btn" id="next">Next</button><button class="btn ghost" id="refresh">Refresh</button></div>
+        <div class="hero-actions"><button class="btn primary" id="next">Next</button><button class="btn ghost" id="refresh">Refresh</button></div>
       </section>
       <div class="ministrip" id="ministrip"></div>
       <div class="notice" id="notice">Loading…</div>
@@ -165,7 +165,7 @@
           <button class="btn" id="add-feed">Add feed</button>
         </div>
         <div class="panel">
-          <div class="panel-head"><h2>Sources</h2><span class="count" id="visible-count"></span><div class="bulk"><button id="enable-visible">Enable shown</button><button id="disable-visible">Disable shown</button></div></div>
+          <div class="panel-head"><h2>Sources</h2><span class="count" id="visible-count"></span><button class="btn primary" id="push-rss" style="margin-left:auto" title="Fetch enabled feeds and send the current headline to the BUSY Bar">Push enabled feeds</button><div class="bulk" style="margin-left:8px"><button id="enable-visible">Enable shown</button><button id="disable-visible">Disable shown</button></div></div>
           <div class="feeds" id="feeds"><div class="empty">Loading sources…</div></div>
         </div>
       </section>
