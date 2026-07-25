@@ -16,6 +16,7 @@ import math
 import os
 import re
 import shutil
+import signal
 import socket
 import ssl
 import struct
@@ -1873,6 +1874,29 @@ async def router_keepalive() -> None:
         await asyncio.sleep(45)
 
 
+def router_logout(config: Config, clear_saved_token: bool = True) -> None:
+    """Invalidate our sysauth session on the router and forget the local token."""
+    token = config.router_sysauth
+    if token:
+        try:
+            base = config.router_url.rstrip("/")
+            opener = _router_session.get("opener") or _router_opener()
+            req = urllib.request.Request(base + "/logout.cgi",
+                                         headers=_router_headers(config))
+            with _router_open(opener, req, "logout") as resp:
+                resp.read()
+            LOGGER.info("router.logout.ok")
+        except Exception as exc:
+            LOGGER.warning("router.logout.failed error=%s", exc)
+    _router_session.update(opener=None, retry_after=0.0, auth_error="")
+    if clear_saved_token and token:
+        with STATE.lock:
+            if STATE.config.router_sysauth == token:
+                STATE.config.router_sysauth = ""
+                save_config(STATE.config)
+        LOGGER.info("router.session_token.cleared")
+
+
 def _router_get(opener: urllib.request.OpenerDirector, config: Config, path: str) -> str:
     base = config.router_url.rstrip("/")
     req = urllib.request.Request(base + path, headers={
@@ -2884,6 +2908,11 @@ class Handler(BaseHTTPRequestHandler):
                 with STATE.lock:
                     config = STATE.config
                 self.json_response(200, show_clients_now(config))
+            elif path == "/api/router/logout":
+                with STATE.lock:
+                    config = STATE.config
+                router_logout(config)
+                self.json_response(200, {"result": "logged out"})
             elif path == "/api/router/devices":
                 with STATE.lock:
                     config = STATE.config
@@ -3007,4 +3036,20 @@ if __name__ == "__main__":
     threading.Thread(target=lambda: asyncio.run(scheduler()), daemon=True).start()
     port = int(os.environ.get("PORT", "8090"))
     print(f"Busy RSS is running at http://localhost:{port}")
-    ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
+    server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
+
+    def stop_service(signum, frame) -> None:
+        LOGGER.info("service.stop signal=%s", signum)
+        # shutdown() must run outside the serve_forever thread.
+        threading.Thread(target=server.shutdown, daemon=True).start()
+
+    signal.signal(signal.SIGTERM, stop_service)
+    signal.signal(signal.SIGINT, stop_service)
+    try:
+        server.serve_forever()
+    finally:
+        with STATE.lock:
+            config = STATE.config
+        router_logout(config)
+        server.server_close()
+        LOGGER.info("service.stopped")
