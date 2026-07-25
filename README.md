@@ -9,7 +9,7 @@ local dashboard.
 ## What it does
 
 - Pushes the newest enabled RSS headline to the BUSY Bar on demand
-- Gives every built-in or custom feed its own generated pixel icon
+- Uses publisher favicons for built-in feeds and a tiny white RSS fallback for custom feeds
 - Rotates multiple sources or pins one favorite feed
 - Colors the LED strip by freshness: green, amber, orange, slate, or gray
 - Supports one-click per-source display, preview-only refreshes, and scheduled runs
@@ -40,10 +40,10 @@ it can contain device, router, and API credentials.
 
 ## Pixel feed icons
 
-Every source gets a compact icon suited to the BUSY Bar display. Built-in brands
-use hand-tuned artwork or badges; any feed you add receives a stable,
-automatically generated badge. Editable badges can be customized from the
-source row in the dashboard.
+Every source gets a compact icon suited to the BUSY Bar display. Built-in
+publishers use locally bundled derivatives of their official favicons; any feed
+you add receives a tiny white RSS glyph. The same asset is used in the web
+source list and uploaded to the physical display.
 
 ## Display behavior
 

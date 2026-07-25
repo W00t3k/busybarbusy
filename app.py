@@ -41,6 +41,7 @@ USER_AGENT = "BusyRSS/1.0"
 # Some publishers (USOM, Sophos) serve an HTML interstitial to bare feed readers.
 FEED_HEADERS = {"Accept": "application/rss+xml, application/atom+xml, application/xml;q=0.9, */*;q=0.8"}
 LOG_PATH = ROOT / "busy-rss.log"
+FEED_ICON_DIR = ROOT / "static" / "feed-icons"
 LOGGER = logging.getLogger("busy_rss")
 LOGGER.setLevel(logging.INFO)
 _log_handler = RotatingFileHandler(LOG_PATH, maxBytes=1_000_000, backupCount=3)
@@ -725,6 +726,23 @@ def rss_icon_png() -> bytes:
     return encode_png([[white if pixel == "W" else CLEAR for pixel in row] for row in art])
 
 
+def site_favicon_png() -> bytes:
+    """Render the dashboard's orange-and-white 16px BUSY mark."""
+    orange, white, dark = (255, 93, 58, 255), (255, 255, 255, 255), (16, 7, 4, 255)
+    pixels = [[dark for _ in range(16)] for _ in range(16)]
+    for y in range(2, 14):
+        for x in range(2, 14):
+            pixels[y][x] = orange
+    glyph = ("110", "101", "110", "101", "110")
+    for gy, row in enumerate(glyph):
+        for gx, bit in enumerate(row):
+            if bit == "1":
+                for sy in range(2):
+                    for sx in range(2):
+                        pixels[3 + gy * 2 + sy][5 + gx * 2 + sx] = white
+    return encode_png(pixels)
+
+
 BADGES = {
     "DARKNET DIARIES": ("DD", (13, 13, 18, 255), (255, 48, 73, 255)),
     "GRAHAM CLULEY": ("GC", (20, 72, 110, 255), (255, 255, 255, 255)),
@@ -785,7 +803,8 @@ def badge_spec(source: str) -> tuple[str, Pixel, Pixel]:
 
 def is_badge_source(source: str) -> bool:
     """True when the source uses the editable badge renderer rather than custom art."""
-    return not (source in ("UNLEASHEDFLIP", "HACKER NEWS", "CLOCK")
+    return not (source == "CLOCK"
+                or publisher_favicon(source) is not None
                 or source not in CATALOGUE_SOURCES
                 or source.startswith(("WIRED", "NPR ", "VERGE ")))
 
@@ -793,6 +812,38 @@ def is_badge_source(source: str) -> bool:
 def source_slug(source: str) -> str:
     """Return one safe, stable asset stem for a feed source."""
     return re.sub(r"[^a-z0-9]+", "-", source.lower()).strip("-") or "rss"
+
+
+PUBLISHER_FAVICONS = {
+    "DARKNET DIARIES": "darknet-diaries.png",
+    "GRAHAM CLULEY": "graham-cluley.png",
+    "KREBS": "krebs.png",
+    "SANS ISC": "sans-isc.png",
+    "SCHNEIER": "schneier.png",
+    "SECURELIST": "securelist.png",
+    "THE HACKER NEWS": "the-hacker-news.png",
+    "TROY HUNT": "troy-hunt.png",
+    "WELIVESECURITY": "eset.png",
+    "HACKER NEWS": "hacker-news.png",
+    "USOM THREATS": "usom.png",
+    "USOM NEWS": "usom.png",
+    "UNLEASHEDFLIP": "unleashedflip.png",
+}
+
+
+def publisher_favicon(source: str) -> Optional[Path]:
+    """Resolve a built-in feed to its publisher-provided favicon asset."""
+    filename = PUBLISHER_FAVICONS.get(source)
+    if source.startswith("WIRED"):
+        filename = "wired.png"
+    elif source.startswith("NPR "):
+        filename = "npr.png"
+    elif source.startswith("VERGE "):
+        filename = "the-verge.png"
+    elif source.startswith("SOPHOS "):
+        filename = "sophos.png"
+    path = FEED_ICON_DIR / filename if filename else None
+    return path if path and path.is_file() else None
 
 
 WIRED_PALETTES = {
@@ -811,6 +862,11 @@ WIRED_PALETTES = {
 def icon_details(source: str) -> tuple[str, bytes, int, str]:
     if source == "CLOCK":
         return "clock.png", flip_clock_png(), 72, "#F8E8C5FF"
+    favicon = publisher_favicon(source)
+    if favicon:
+        content = favicon.read_bytes()
+        width = struct.unpack(">I", content[16:20])[0]
+        return favicon.stem + "-favicon-v1.png", content, width + 3, "#FFFFFFFF"
     if source.startswith("WIRED"):
         accent, secondary, color = WIRED_PALETTES.get(source, WIRED_PALETTES["WIRED"])
         filename = source_slug(source) + "-pixel-v2.png"
@@ -2107,7 +2163,7 @@ def send_plain_headline(config: Config, item: Headline, rank: int, timeout: int 
             "display": "front", "timeout": timeout,
         }, {
             "id": "rss-clean-text", "type": "text", "text": title[:500],
-            "font": "small", "color": color, "width": 72 - text_x,
+            "font": "tiny", "color": color, "width": 72 - text_x,
             "align": "mid_left", "x": text_x, "y": 8, "display": "front",
             "scroll_rate": 850, "scroll_start_delay": 300,
             "scroll_repeat_delay": 500, "timeout": timeout,
@@ -2542,6 +2598,14 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")  # always serve the latest UI
+            self.end_headers()
+            self.wfile.write(body)
+        elif path == "/favicon.ico":
+            body = site_favicon_png()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "public, max-age=86400")
             self.end_headers()
             self.wfile.write(body)
         elif path == "/static/vertex.js":
