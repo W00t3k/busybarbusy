@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Busy Control</title>
+  <style>
+    :root{
+      --bg:#050506;--surface:#0e0f10;--surface2:#141517;--line:#212226;--line-soft:#1a1b1e;
+      --ink:#f2f3f5;--muted:#8b8d96;--dim:#54565e;
+      --accent:#ff5d3a;--accent-ink:#180a04;--accent2:#7c8cff;--violet:#a78bfa;
+      --green:#3ddc97;--red:#ff5c72;--amber:#ffb84d;
+      --radius:16px;--radius-sm:10px;
+      --ease:cubic-bezier(.2,.7,.3,1);
+      --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+      --sans:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      color-scheme:dark
+    }
+    *{box-sizing:border-box}
+    html{background:var(--bg)}
+    body{margin:0;min-height:100vh;color:var(--ink);font-family:var(--sans);background:
+      radial-gradient(circle at 12% -15%,#2a140c 0,transparent 34rem),
+      radial-gradient(circle at 100% 10%,#0f1830 0,transparent 32rem),
+      radial-gradient(circle at 50% 120%,#150a20 0,transparent 40rem),
+      var(--bg)}
+    #vertex{position:fixed;inset:0;z-index:0;pointer-events:none}
+    button,input,select{font:inherit}
+    button{color:inherit}
+    ::selection{background:var(--accent);color:var(--accent-ink)}
+    .app{position:relative;z-index:1;width:min(1180px,calc(100% - 36px));margin:auto;padding:28px 0 64px}
+    header{display:flex;align-items:center;gap:14px;margin-bottom:26px}
+    .logo{width:34px;height:34px;display:grid;grid-template-columns:repeat(4,1fr);gap:2px;padding:6px;border:1px solid #3a1f14;border-radius:11px;background:linear-gradient(160deg,#1c0f09,#120a06)}
+    .logo i{background:var(--accent);border-radius:1px;opacity:.32;transition:opacity .4s var(--ease)}.logo i:nth-child(2n),.logo i:nth-child(7){opacity:1;box-shadow:0 0 8px #ff5d3a80}
+    .brand h1{font-size:16px;letter-spacing:-.02em;margin:0;background:linear-gradient(90deg,var(--ink),var(--muted));-webkit-background-clip:text;background-clip:text}
+    .brand p{font:10px var(--mono);color:var(--muted);margin:3px 0 0;text-transform:uppercase;letter-spacing:.14em}
+    .grow{flex:1}.health{display:flex;gap:8px;align-items:center;font:11px var(--mono);color:var(--muted)}
+    .pulse{width:7px;height:7px;border-radius:50%;background:var(--dim);transition:background .3s}.pulse.on{background:var(--green);box-shadow:0 0 0 4px #3ddc9720,0 0 12px #3ddc9760}
+    .shell{display:grid;grid-template-columns:212px minmax(0,1fr);gap:18px}
+    .sidebar,.panel,.hero{background:linear-gradient(165deg,#101113ee,#0b0c0ded);border:1px solid var(--line);box-shadow:0 24px 60px -20px #000a,inset 0 1px 0 #ffffff08;backdrop-filter:blur(20px)}
+    .sidebar{border-radius:var(--radius);padding:10px;height:max-content;position:sticky;top:18px}
+    nav button{width:100%;border:0;border-left:2px solid transparent;background:transparent;text-align:left;padding:10px 12px;border-radius:9px;color:var(--muted);font-size:13px;cursor:pointer;display:flex;align-items:center;gap:10px;transition:background .18s var(--ease),color .18s var(--ease)}
+    nav button:hover{color:var(--ink);background:#ffffff08}
+    nav button.on{color:#fff;background:linear-gradient(90deg,#ff5d3a14,transparent);border-left-color:var(--accent)}
+    nav button span{font:12px var(--mono);color:var(--dim);width:18px}nav button.on span{color:var(--accent)}
+    .side-rule{height:1px;background:linear-gradient(90deg,transparent,var(--line),transparent);margin:8px}
+    .side-note{padding:10px 12px;color:var(--dim);font:10px/1.5 var(--mono)}
+    .content{min-width:0}.view{display:none;animation:rise .3s var(--ease)}.view.on{display:block}
+    @keyframes rise{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+    .hero{border-radius:20px;padding:20px;margin-bottom:16px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:18px;align-items:center;position:relative;overflow:hidden}
+    .hero:before{content:"";position:absolute;inset:0;background:radial-gradient(circle at 100% 0%,#ff5d3a12,transparent 60%);pointer-events:none}
+    .device{background:#020202;border:1px solid #26201c;border-radius:12px;padding:12px 14px;min-height:62px;display:flex;align-items:center;overflow:hidden;box-shadow:inset 0 0 32px #000,inset 0 0 0 1px #ffffff05}
+    .device img{width:auto;height:22px;image-rendering:pixelated;margin-right:10px}.marquee{white-space:nowrap;font:600 17px var(--mono);color:#f7f8fa;overflow:hidden;text-overflow:ellipsis}
+    .hero-meta{display:flex;gap:24px;margin-top:12px;color:var(--muted);font:10px var(--mono);text-transform:uppercase;letter-spacing:.09em}
+    .hero-meta b{color:var(--ink);font-weight:600}.hero-actions{display:flex;flex-direction:column;gap:8px;min-width:126px}
+    .ministrip{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
+    .ministrip:empty{display:none}
+    .mtile{background:linear-gradient(165deg,#101113ee,#0c0d0eed);border:1px solid var(--line);border-radius:12px;padding:11px 13px;display:flex;flex-direction:column;gap:6px;min-height:66px;box-shadow:inset 0 1px 0 #ffffff06}
+    .mtile .ml{font:9px var(--mono);letter-spacing:.09em;text-transform:uppercase;color:var(--dim);display:flex;justify-content:space-between;align-items:center}
+    .mtile .mv{font-size:16px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}
+    .mtile svg{width:100%;height:22px;display:block}
+    .btn{border:1px solid var(--line);background:#16171a;border-radius:10px;padding:9px 12px;font-size:12px;cursor:pointer;transition:transform .12s var(--ease),border-color .15s,background .15s,box-shadow .15s}
+    .btn:hover{border-color:#3a3c42;background:#1c1e22;transform:translateY(-1px)}
+    .btn:active{transform:translateY(0)}
+    .btn.primary{background:linear-gradient(160deg,#ff7452,var(--accent));border-color:var(--accent);color:var(--accent-ink);font-weight:700;box-shadow:0 6px 18px -6px #ff5d3a70}
+    .btn.primary:hover{box-shadow:0 8px 22px -6px #ff5d3aa0}
+    .btn.ghost{background:transparent}.btn.ghost.on{border-color:var(--accent);color:var(--accent)}.btn:disabled{opacity:.4;cursor:wait;transform:none}
+    .notice{min-height:18px;margin:0 2px 12px;color:var(--muted);font:11px var(--mono);transition:color .2s}.notice.bad{color:var(--red)}
+    .toolbar{display:flex;gap:9px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+    .search{position:relative;flex:1;min-width:210px}.search:before{content:"⌕";position:absolute;left:12px;top:9px;color:var(--dim)}
+    input,select{width:100%;border:1px solid var(--line);background:#0c0d0f;color:var(--ink);border-radius:10px;padding:9px 11px;outline:0;transition:border-color .15s,box-shadow .15s}
+    .search input{padding-left:32px}
+    input:focus,select:focus{border-color:var(--accent2);box-shadow:0 0 0 3px #7c8cff22}
+    input[type=color]{padding:3px;cursor:pointer}
+    .chips{display:flex;gap:5px;flex-wrap:wrap}.chip{border:1px solid var(--line);background:transparent;color:var(--muted);padding:8px 10px;border-radius:20px;font-size:11px;cursor:pointer;transition:all .15s var(--ease)}
+    .chip:hover{border-color:var(--dim);color:var(--ink)}
+    .chip.on{color:var(--accent-ink);background:var(--accent);border-color:var(--accent);font-weight:600}
+    .panel{border-radius:var(--radius);overflow:hidden}.panel-head{display:flex;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line)}
+    .panel-head h2{font-size:13px;margin:0;letter-spacing:.01em}.count{margin-left:8px;color:var(--dim);font:10px var(--mono)}.bulk{margin-left:auto;display:flex;gap:6px}
+    .bulk button{border:0;background:transparent;color:var(--muted);font-size:10px;cursor:pointer;padding:4px 6px;border-radius:6px;transition:color .15s,background .15s}.bulk button:hover{color:var(--ink);background:#ffffff0a}
+    .feeds{display:grid}.feed-group{border-bottom:1px solid var(--line)}.feed-group:last-child{border-bottom:0}
+    .feed-group summary{cursor:pointer;list-style:none;padding:9px 16px;font:10px var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.09em;background:#ffffff04;display:flex;align-items:center;gap:8px;transition:background .15s}
+    .feed-group summary:hover{background:#ffffff08}
+    .feed-group summary::-webkit-details-marker{display:none}.feed-group summary::marker{content:""}
+    .feed-group summary:before{content:"▸";color:var(--accent);transition:transform .2s var(--ease)}.feed-group[open] summary:before{transform:rotate(90deg)}
+    .feed-group summary .count{color:var(--dim);font-weight:400;margin-left:auto}
+    .feed{display:grid;grid-template-columns:24px minmax(120px,.6fr) minmax(220px,1.4fr) 64px 78px;gap:12px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line-soft);transition:background .15s}
+    .feed:last-child{border:0}.feed:hover{background:#ffffff05}.feed.off{opacity:.42}
+    .feed img{max-width:22px;max-height:16px;image-rendering:pixelated}.feed-name{font-size:12px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.feed-title{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .age{font:10px var(--mono);color:var(--dim)}.feed-actions{display:flex;justify-content:flex-end;gap:5px}
+    .mini{border:1px solid var(--line);background:transparent;padding:5px 7px;border-radius:7px;color:var(--muted);font:9px var(--mono);cursor:pointer;transition:all .15s var(--ease)}.mini:hover{color:var(--ink);border-color:var(--dim)}.mini.state{min-width:31px}.feed:not(.off) .mini.state{color:var(--green);border-color:#1f4a37;background:#3ddc9710}
+    .empty{padding:44px;text-align:center;color:var(--dim);font:12px var(--mono)}
+    .form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+    .card{background:linear-gradient(165deg,#101113ee,#0c0d0eed);border:1px solid var(--line);border-radius:var(--radius);padding:16px;box-shadow:inset 0 1px 0 #ffffff06}.card.full{grid-column:1/-1}
+    .card h2{font-size:13px;margin:0 0 16px;letter-spacing:.01em}.card label{display:block;color:var(--muted);font-size:10px;margin:11px 0 6px;text-transform:uppercase;letter-spacing:.07em}.card label:first-of-type{margin-top:0}
+    .check{display:flex!important;align-items:center;gap:8px;text-transform:none!important;letter-spacing:0!important;font-size:12px!important}.check input{width:auto}
+    .clock-preview{background:#030405;border:1px solid var(--line);border-radius:12px;padding:24px;text-align:center;box-shadow:inset 0 0 40px #000}.clock-preview img{width:min(720px,100%);image-rendering:pixelated}
+    .row-actions{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}.swatches{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}.swatches input{height:40px;border-radius:9px}
+    pre{margin:0;max-height:570px;overflow:auto;white-space:pre-wrap;word-break:break-word;color:#9799a3;font:10px/1.65 var(--mono)}
+    .net-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px}
+    .metric{background:linear-gradient(165deg,#101113ee,#0c0d0eed);border:1px solid var(--line);border-radius:13px;padding:14px;transition:border-color .2s,transform .2s var(--ease)}.metric:hover{border-color:var(--dim);transform:translateY(-1px)}
+    .metric span{display:block;color:var(--dim);font:9px var(--mono);text-transform:uppercase;letter-spacing:.09em}.metric b{display:block;margin-top:7px;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .network{display:grid;grid-template-columns:minmax(150px,1.3fr) 76px 70px 70px 90px;gap:12px;padding:10px 16px;border-bottom:1px solid var(--line-soft);align-items:center;transition:background .15s}.network:hover{background:#ffffff05}
+    .network:last-child{border:0}.network strong{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.network span{font:10px var(--mono);color:var(--muted)}.bars{color:var(--accent2)!important}
+    .flip-row{position:relative;perspective:1200px;border-bottom:1px solid var(--line-soft);cursor:pointer}.flip-row:last-child{border-bottom:0}
+    .flip-row-inner{position:relative;min-height:42px;transition:transform .5s var(--ease);transform-style:preserve-3d}
+    .flip-row.on .flip-row-inner{transform:rotateX(180deg)}
+    .client,.client-back{backface-visibility:hidden;-webkit-backface-visibility:hidden}
+    .client{display:grid;grid-template-columns:minmax(150px,1fr) minmax(80px,140px) 70px 70px;gap:12px;padding:9px 16px;align-items:center;transition:background .15s;min-height:42px}
+    .flip-row:hover .client{background:#ffffff05}
+    .client strong{font-size:12px}.client span{font:10px var(--mono);color:var(--muted);text-align:right}
+    .client-back{position:absolute;inset:0;transform:rotateX(180deg);display:flex;flex-wrap:wrap;align-items:center;gap:4px 16px;padding:8px 16px;font:9.5px var(--mono);color:var(--muted);background:#0d0f13}
+    .client-back b{color:var(--dim);text-transform:uppercase;letter-spacing:.05em;font-weight:400}
+    .client-back .dv{color:var(--ink)}
+    .meter{height:6px;border-radius:4px;background:var(--line-soft);overflow:hidden;display:flex}
+    .meter-fill{height:100%;flex:0 0 auto}.meter-fill+.meter-fill{margin-left:2px}
+    @media(max-width:820px){.client{grid-template-columns:minmax(120px,1fr) 70px}.client .optional,.client>span{display:none}}
+    dialog{border:1px solid var(--line);border-radius:16px;background:linear-gradient(165deg,#121316,#0d0e10);color:var(--ink);padding:0;width:min(420px,calc(100% - 30px));box-shadow:0 32px 90px -20px #000c}dialog::backdrop{background:#000c;backdrop-filter:blur(6px)}.modal{padding:20px}
+    @media(prefers-reduced-motion:reduce){*,.view{animation:none!important;transition:none!important}}
+    @media(max-width:820px){.shell{grid-template-columns:1fr}.sidebar{position:static}.sidebar nav{display:flex;overflow:auto}.sidebar nav button{width:auto;white-space:nowrap;border-left:0;border-bottom:2px solid transparent}.sidebar nav button.on{border-bottom-color:var(--accent)}.side-rule,.side-note{display:none}.feed{grid-template-columns:22px minmax(100px,1fr) 62px 72px}.feed-title{display:none}.form-grid{grid-template-columns:1fr}.card.full{grid-column:auto}.net-summary{grid-template-columns:repeat(2,1fr)}.network{grid-template-columns:minmax(130px,1fr) 70px 60px}.network .optional{display:none}}
+    @media(max-width:540px){.app{width:min(100% - 18px,1180px);padding-top:12px}.hero{grid-template-columns:1fr}.hero-actions{flex-direction:row}.health{display:none}.feeds .feed{padding:10px}.chips{width:100%;overflow:auto}}
+    @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
+  </style>
+</head>
+<body>
+<canvas id="vertex" aria-hidden="true"></canvas>
+<div class="app">
+  <header>
+    <div class="logo" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="brand"><h1>Busy Control</h1><p>Display operations</p></div><div class="grow"></div>
+    <div class="health"><span class="pulse" id="pulse"></span><span id="health">connecting</span></div>
+  </header>
+  <div class="shell">
+    <aside class="sidebar">
+      <nav id="nav">
+        <button class="on" data-view="feeds"><span>01</span>Feeds</button>
+        <button data-view="clock"><span>02</span>Flip clock</button>
+        <button data-view="networks"><span>03</span>Networks</button>
+        <button data-view="settings"><span>04</span>Settings</button>
+        <button data-view="logs"><span>05</span>Activity</button>
+      </nav>
+      <div class="side-rule"></div>
+      <div class="side-note">Local control<br>192.168.2.69:8090</div>
+    </aside>
+    <main class="content">
+      <section class="hero">
+        <div>
+          <div class="device" id="device"><span class="marquee" id="marquee">Connecting to BUSY Bar…</span></div>
+          <div class="hero-meta"><span>Status <b id="run-state">—</b></span><span>Feeds <b id="feed-count">—</b></span><span>Top bandwidth <b id="top-bandwidth">—</b></span></div>
+        </div>
+        <div class="hero-actions"><button class="btn primary" id="next">Next</button><button class="btn" id="refresh">Refresh</button></div>
+      </section>
+      <div class="ministrip" id="ministrip"></div>
+      <div class="notice" id="notice">Loading…</div>
+
+      <section class="view on" id="view-feeds">
+        <div class="toolbar">
+          <div class="search"><input id="search" type="search" placeholder="Find a source or headline"></div>
+          <div class="chips" id="chips"><button class="chip on" data-filter="active">Active</button><button class="chip" data-filter="all">All</button><button class="chip" data-filter="security">Security</button><button class="chip" data-filter="wired">WIRED</button><button class="chip" data-filter="npr">NPR</button><button class="chip" data-filter="verge">Verge</button></div>
+          <button class="btn ghost" id="toggle-add-feed" type="button" title="Add a new source">+ Add</button>
+        </div>
+        <div class="toolbar" id="add-feed-row" hidden>
+          <input id="new-feed-name" type="text" placeholder="New source name" style="flex:0 0 180px">
+          <input id="new-feed-url" type="url" placeholder="https://example.com/feed.xml" style="flex:1;min-width:220px">
+          <button class="btn" id="add-feed">Add feed</button>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Sources</h2><span class="count" id="visible-count"></span><div class="bulk"><button id="enable-visible">Enable shown</button><button id="disable-visible">Disable shown</button></div></div>
+          <div class="feeds" id="feeds"><div class="empty">Loading sources…</div></div>
+        </div>
+      </section>
+
+      <section class="view" id="view-clock">
+        <div class="card full">
+          <h2>Retro flip clock</h2>
+          <div class="clock-preview"><img id="clock-image" src="/api/clock/image" alt="Clock preview"></div>
+          <form id="clock-form" class="form-grid" style="margin-top:14px">
+            <div><label>Time format</label><select name="clock_format"><option value="12">12 hour</option><option value="24">24 hour</option></select></div>
+            <div><label class="check"><input name="clock_blink" type="checkbox"> Blink the centre lamp</label><label>Blink interval</label><select name="clock_blink_seconds"><option value="1">1 second</option><option value="2">2 seconds</option><option value="3">3 seconds</option></select></div>
+            <div class="card full" style="padding:12px"><div class="swatches">
+              <div><label>Canvas</label><input type="color" name="clock_background"></div><div><label>Card top</label><input type="color" name="clock_card_top"></div><div><label>Card base</label><input type="color" name="clock_card_bottom"></div><div><label>Digits</label><input type="color" name="clock_digits"></div><div><label>Accent</label><input type="color" name="clock_accent"></div>
+            </div></div>
+          </form>
+          <div class="row-actions"><button class="btn primary" id="clock-save">Save & show</button><button class="btn ghost" id="clock-revert">Revert</button><button class="btn ghost" id="clock-stop">Stop clock</button><button class="btn ghost" id="button-start">Press START</button></div>
+          <p style="color:var(--muted);font:11px/1.5 var(--mono);margin:8px 2px 0">Press START mirrors the physical button: one click plays every enabled feed back-to-back (with a timestamp), then nearby networks, then returns to the clock on its own. Click again anytime to skip straight to the next one — it never jumps back to the clock from a click alone.</p>
+          <div class="card full" style="padding:12px;margin-top:14px">
+            <h2 style="font-size:13px;margin:0 0 10px">Saved clocks</h2>
+            <div id="preset-list" style="display:grid;gap:6px"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-networks">
+        <div class="panel" style="margin-bottom:14px">
+          <div class="panel-head"><h2>Active</h2><span class="count" id="router-active-count"></span><div class="bulk"><button id="load-router">Reload</button></div></div>
+          <div id="router-active"><div class="empty">Not loaded yet — click Reload (needs the router password saved in Settings).</div></div>
+        </div>
+        <div class="panel" style="margin-bottom:14px">
+          <div class="panel-head"><h2>History</h2><span class="count" id="router-history-count"></span></div>
+          <div id="router-history"><div class="empty"></div></div>
+        </div>
+        <div class="panel" style="margin-bottom:14px">
+          <div class="panel-head"><h2>Unknown</h2><span class="count" id="router-unknown-count"></span></div>
+          <div id="router-unknown"><div class="empty"></div></div>
+        </div>
+        <div class="card full" id="router-chart-card" style="display:none;margin-bottom:14px">
+          <h2 style="font-size:13px;margin:0 0 12px">Bandwidth history</h2>
+          <div id="router-chart"></div>
+        </div>
+        <div class="net-summary">
+          <div class="metric"><span>Strongest AP</span><b id="net-strongest">—</b></div>
+          <div class="metric"><span>Signal</span><b id="net-signal">—</b></div>
+          <div class="metric"><span>Access points</span><b id="net-count">—</b></div>
+          <div class="metric"><span>BUSY Bar Wi-Fi</span><b id="net-device">—</b></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Nearby access points</h2><span class="count" id="net-time">not scanned</span><div class="bulk"><button id="scan-networks">Scan now</button><button id="show-network-device">Push clients to bar</button><button id="copy-network-api">Copy API URL</button></div></div>
+          <div id="networks"><div class="empty">Press Scan now or press START while the CUSTOM clock is visible.</div></div>
+        </div>
+      </section>
+
+      <section class="view" id="view-settings">
+        <form id="settings-form" class="form-grid">
+          <div class="card"><h2>Device</h2><label>BUSY Bar address</label><input name="device_url" type="url"><label>API key</label><input name="api_key" type="password" placeholder="Leave blank to keep saved key"></div>
+          <div class="card"><h2>Playback</h2><label>Feed mode</label><select name="mode"><option value="newest">Newest only</option><option value="rotate">Rotate sources</option><option value="pinned">Pinned source</option></select><label>Pinned source</label><input name="pinned_source"><label class="check"><input name="enabled" type="checkbox"> Run feed automatically</label><label class="check"><input name="show_meta" type="checkbox"> Include age and queue position</label></div>
+          <div class="card"><h2>Physical controls</h2><label>CUSTOM launches</label><select name="custom_action"><option value="clock">Retro flip clock</option><option value="rss">RSS rotation</option></select><label class="check"><input name="hourly_flash" type="checkbox"> Flash lights at the top of every hour</label><label>Hourly light color</label><input name="hourly_flash_color" placeholder="#FF9130FF"><p style="color:var(--muted);font:11px/1.5 var(--mono)">CUSTOM always opens the clock. One START press plays every enabled feed back-to-back, then nearby network info, then returns to the live clock on its own. Pressing again skips straight to the next feed/network instead of waiting out its timer.</p></div>
+          <div class="card"><h2>Display</h2><label>Font</label><select name="font"><option>tiny</option><option>small</option><option>normal</option><option>condensed</option><option>bold</option><option>large</option></select><label>LED behavior</label><select name="led_mode"><option value="freshness">Headline freshness</option><option value="fixed">Fixed color</option></select><label>Fixed LED color</label><input name="led_color"></div>
+          <div class="card"><h2>Refresh</h2><label>Refresh interval (minutes)</label><input name="interval_minutes" type="number" min="1" max="1440"><label>Headlines to keep</label><input name="max_items" type="number" min="1" max="50"></div>
+          <div class="card"><h2>Home router</h2><label>Router address</label><input name="router_url" type="url" placeholder="https://192.168.2.1"><label>Admin username</label><input name="router_username" placeholder="admin"><label>Admin password</label><input name="router_password" type="password" placeholder="Leave blank to keep saved password"></div>
+        </form>
+        <div class="row-actions"><button class="btn primary" id="save-settings">Save settings</button></div>
+      </section>
+
+      <section class="view" id="view-logs"><div class="panel"><div class="panel-head"><h2>Recent activity</h2><div class="bulk"><button id="reload-logs">Reload</button></div></div><div style="padding:16px"><pre id="logs">Loading…</pre></div></div></section>
+    </main>
+  </div>
+</div>
+
+<dialog id="editor"><div class="modal"><h2 id="editor-title">Edit badge</h2><form id="badge-form"><input name="source" type="hidden"><label>Short label</label><input name="label" maxlength="3"><label>Plate color</label><input name="background"><label>Letter color</label><input name="foreground"><div class="row-actions"><button class="btn primary">Save badge</button><button class="btn" type="button" id="close-editor">Cancel</button></div></form></div></dialog>
+
+<script src="/static/vertex.js"></script>
+<script>
+const $=s=>document.querySelector(s);
+let feeds=[],config={},status={},filter="active";
+const api=async(path,body)=>{const response=await fetch(path,{method:body===undefined?"GET":"POST",headers:{"Content-Type":"application/json"},body:body===undefined?undefined:JSON.stringify(body)});const data=await response.json();if(!response.ok)throw Error(data.error||"Request failed");return data};
+const note=(text,bad=false)=>{$("#notice").textContent=text;$("#notice").className="notice"+(bad?" bad":"")};
+const esc=value=>String(value??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const shortName=name=>name.replace(/^THE /,"").replace("DARKNET DIARIES","Darknet").replace("GRAHAM CLULEY","Cluley").replace("WELIVESECURITY","ESET").replace("UNLEASHEDFLIP","Unleashed");
+const group=name=>name.startsWith("WIRED")?"wired":name.startsWith("NPR")?"npr":name.startsWith("VERGE")?"verge":"security";
+const visible=()=>{const q=$("#search").value.toLowerCase();return feeds.filter(f=>(filter==="all"||filter==="active"&&f.enabled||group(f.source)===filter)&&(!q||`${f.source} ${f.title}`.toLowerCase().includes(q)))};
+
+const GROUP_LABELS={security:"Security",wired:"WIRED",npr:"NPR",verge:"The Verge"};
+const GROUP_ORDER=["security","wired","npr","verge"];
+const openGroups=new Set(GROUP_ORDER);
+function feedRow(f){
+  return `<div class="feed ${f.enabled?"":"off"}" data-source="${encodeURIComponent(f.source)}">
+    <img src="${f.icon}?v=${Date.now()}" alt=""><div class="feed-name">${shortName(f.source)}</div>
+    <div class="feed-title" title="${(f.title||"").replaceAll('"',"&quot;")}">${f.title||"No current item"}</div><div class="age">${f.age||"—"}</div>
+    <div class="feed-actions"><button class="mini state" data-action="toggle">${f.enabled?"ON":"OFF"}</button>${f.title?'<button class="mini" data-action="show">SHOW</button>':""}${f.editable?'<button class="mini" data-action="edit">•••</button>':""}</div></div>`;
+}
+function render(){
+  const list=visible();$("#visible-count").textContent=`${list.length} shown`;
+  if(!list.length){$("#feeds").innerHTML='<div class="empty">No sources match this view.</div>';return}
+  const groups={};
+  for(const f of list)(groups[group(f.source)]=groups[group(f.source)]||[]).push(f);
+  $("#feeds").innerHTML=GROUP_ORDER.filter(g=>groups[g]?.length).map(g=>`
+    <details class="feed-group" data-group="${g}"${openGroups.has(g)?" open":""}>
+      <summary>${GROUP_LABELS[g]}<span class="count">${groups[g].length}</span></summary>
+      ${groups[g].map(feedRow).join("")}
+    </details>`).join("");
+}
+function preview(){
+  const live=feeds.find(f=>f.enabled&&f.marquee);
+  const device=$("#device");device.querySelector("img")?.remove();
+  if(!live){$("#marquee").textContent="No loaded headline";return}
+  const img=new Image();img.src=live.icon+"?v="+Date.now();device.prepend(img);$("#marquee").textContent=live.marquee;$("#marquee").style.color=(live.text_color||"#fff").slice(0,7);
+}
+const CLOCK_FIELDS=["clock_format","clock_blink","clock_blink_seconds","clock_background","clock_card_top","clock_card_bottom","clock_digits","clock_accent"];
+function fill(form,data){for(const [key,value] of Object.entries(data)){const el=form.elements[key];if(!el||typeof value==="object")continue;el.type==="checkbox"?el.checked=value:el.type==="color"?el.value=(value||"#000000FF").slice(0,7):el.value=value}}
+function values(form){const result={};for(const el of form.elements){if(!el.name)continue;result[el.name]=el.type==="checkbox"?el.checked:el.type==="color"?el.value.toUpperCase()+"FF":el.type==="number"?Number(el.value):el.name==="clock_blink_seconds"?Number(el.value):el.value.trim()}return result}
+function previewClockLive(){
+  const v=values($("#clock-form")),query=new URLSearchParams();
+  for(const key of CLOCK_FIELDS)query.set(key,v[key]);
+  query.set("v",Date.now());
+  $("#clock-image").src="/api/clock/image?"+query.toString();
+}
+function renderPresets(){
+  const presets=config.clock_presets||{},names=Object.keys(presets);
+  $("#preset-list").innerHTML=names.length?names.map(name=>`<div style="display:flex;align-items:center;gap:8px">
+    <span style="flex:1;font-size:12px">${esc(name)}</span>
+    <button class="mini" data-action="apply" data-name="${encodeURIComponent(name)}">Show</button>
+    <button class="mini" data-action="delete" data-name="${encodeURIComponent(name)}">Delete</button>
+  </div>`).join(""):'<div class="empty" style="padding:10px">No saved clocks yet — Save & show one, then you\'ll be asked to name it.</div>';
+}
+async function load(){
+  try{const [cfg,result]=await Promise.all([api("/api/config"),api("/api/feeds")]);config=cfg.config;status=cfg.status;feeds=result.feeds;
+    fill($("#clock-form"),config);fill($("#settings-form"),config);renderPresets();
+    const active=feeds.filter(f=>f.enabled).length;$("#feed-count").textContent=`${active} / ${feeds.length}`;$("#run-state").textContent=status.clock_active?"clock":config.enabled?"feed live":"paused";
+    renderTopBandwidth();
+    $("#pulse").classList.toggle("on",status.clock_active||config.enabled);$("#health").textContent="server online";note(status.last_error||"Ready",!!status.last_error);render();preview();
+  }catch(error){$("#health").textContent="offline";note(error.message,true)}}
+let lastRouterClients=null,lastRouterHistory=[];
+function sparkline(data,color){
+  const n=data.length;
+  if(n<2)return `<svg viewBox="0 0 100 22" preserveAspectRatio="none"></svg>`;
+  const max=Math.max(1,...data),X=i=>i/(n-1)*100,Y=v=>21-(Math.min(v,max)/max)*20;
+  const pts=data.map((v,i)=>`${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(" ");
+  const uid="sp"+Math.random().toString(36).slice(2,7);
+  return `<svg viewBox="0 0 100 22" preserveAspectRatio="none">
+    <defs><linearGradient id="${uid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${color}" stop-opacity=".45"/><stop offset="1" stop-color="${color}" stop-opacity="0"/></linearGradient></defs>
+    <polygon points="0,22 ${pts} 100,22" fill="url(#${uid})"/>
+    <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" vector-effect="non-scaling-stroke"/></svg>`;
+}
+function renderMiniStrip(){
+  const clients=lastRouterClients||[];
+  if(!clients.length){$("#ministrip").innerHTML="";return}
+  const named=clients.filter(c=>c.has_name);
+  const active=named.filter(c=>c.active).length;
+  const totalRx=clients.reduce((s,c)=>s+c.bytes_rx,0),totalTx=clients.reduce((s,c)=>s+c.bytes_tx,0);
+  const dl=(lastRouterHistory[0]||[]).map(Number),ul=(lastRouterHistory[1]||[]).map(Number);
+  const dlNow=dl.length?dl[dl.length-1]:0,ulNow=ul.length?ul[ul.length-1]:0;
+  $("#ministrip").innerHTML=`
+    <div class="mtile"><div class="ml"><span>Download</span></div><div class="mv" style="color:${BW_DOWNLOAD_COLOR};font-size:14px">${formatBytes(dlNow)}<span style="font-size:9px;color:var(--dim)">/s</span></div>${sparkline(dl,BW_DOWNLOAD_COLOR)}</div>
+    <div class="mtile"><div class="ml"><span>Upload</span></div><div class="mv" style="color:${BW_UPLOAD_COLOR};font-size:14px">${formatBytes(ulNow)}<span style="font-size:9px;color:var(--dim)">/s</span></div>${sparkline(ul,BW_UPLOAD_COLOR)}</div>
+    <div class="mtile"><div class="ml"><span>Active devices</span><span style="color:var(--green)">●</span></div><div class="mv">${active}<span style="font-size:9px;color:var(--dim)"> / ${named.length} named</span></div></div>
+    <div class="mtile"><div class="ml"><span>Total traffic · 1h</span></div><div class="mv" style="font-size:13px">↓${formatBytes(totalRx)} <span style="color:var(--dim)">↑${formatBytes(totalTx)}</span></div></div>`;
+}
+function renderTopBandwidth(){
+  const named=(lastRouterClients||[]).filter(c=>c.has_name);
+  if(!named.length){$("#top-bandwidth").textContent="—";return}
+  const top=named.reduce((a,b)=>(a.bytes_rx+a.bytes_tx)>=(b.bytes_rx+b.bytes_tx)?a:b);
+  const total=top.bytes_rx+top.bytes_tx;
+  // Several devices can share a generic name ("Mac" x5 here) — the MAC
+  // disambiguates, same as every row in the Active/History/Unknown lists.
+  $("#top-bandwidth").textContent=total?`${top.name} · ${top.mac} (${formatBytes(total)})`:"—";
+}
+function formatBytes(n){
+  if(!n)return"0 B";
+  const units=["B","KB","MB","GB","TB"];let i=0;
+  while(n>=1024&&i<units.length-1){n/=1024;i++}
+  return`${n.toFixed(i?1:0)} ${units[i]}`;
+}
+function fmtDur(s){s=Number(s)||0;const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return d?`${d}d ${h}h`:h?`${h}h ${m}m`:`${m}m`;}
+function clientDetail(c){
+  const r=c.raw||{};
+  const port=(r.port||"").toLowerCase();
+  const conn=port.startsWith("ath")?"Wi-Fi":port.startsWith("eth")||port.includes("lan")?"Wired":port||"—";
+  const model=[r.device_manufacturer,r.device_product,r.device_model].map(x=>x&&x!=="(null)"&&x.toLowerCase()!=="n/a"?x:"").filter(Boolean).join(" ");
+  const os=(r.device_os&&r.device_os!=="(null)")?r.device_os:"";
+  const vendor=(r.mac_vendor&&r.mac_vendor!=="n/a")?r.mac_vendor:"";
+  const cell=(k,v)=>v?`<span><b>${k}</b> <span class="dv">${esc(v)}</span></span>`:"";
+  return cell("IP",r.ip)+cell("Conn",conn)+cell("Vendor",vendor)+cell("OS",os)+cell("Model",model)
+    +cell("Last",r.time_last_active)+cell("Uptime",r.uptime?fmtDur(r.uptime):"")+cell("DHCP",r.is_dhcp?"yes":r.is_dhcp===0?"static":"");
+}
+function clientRow(c,label){
+  const maxTotal=window.__routerMaxTotal||1;
+  const total=c.bytes_rx+c.bytes_tx,rxPct=total?c.bytes_rx/maxTotal*100:0,txPct=total?c.bytes_tx/maxTotal*100:0;
+  return`<div class="flip-row"><div class="flip-row-inner">
+    <div class="client">
+      <div><strong>${esc(label!=null?label:c.name)}</strong><span class="optional" style="margin-left:8px">${esc(c.mac||"—")}</span></div>
+      <div class="meter" title="↓ ${formatBytes(c.bytes_rx)} · ↑ ${formatBytes(c.bytes_tx)}">
+        <div class="meter-fill" style="width:${rxPct}%;background:${BW_DOWNLOAD_COLOR}"></div>
+        <div class="meter-fill" style="width:${txPct}%;background:${BW_UPLOAD_COLOR}"></div>
+      </div>
+      <span>↓ ${formatBytes(c.bytes_rx)}</span><span>↑ ${formatBytes(c.bytes_tx)}</span>
+    </div>
+    <div class="client-back">${clientDetail(c)||'<span class="dv">no extra detail</span>'}</div>
+  </div></div>`;
+}
+function renderRouterClients(){
+  const all=lastRouterClients||[];
+  // has_name is true only for the router's own explicit device name — a
+  // generic default hostname (bare "Mac", etc.) doesn't count, so it lands in
+  // Unknown instead of masquerading as an identified device.
+  const named=all.filter(c=>c.has_name);
+  const byTraffic=(a,b)=>(b.bytes_rx+b.bytes_tx)-(a.bytes_rx+a.bytes_tx);
+  const active=named.filter(c=>c.active).sort(byTraffic);
+  const history=named.filter(c=>!c.active).sort(byTraffic);
+  const unknown=all.filter(c=>!c.has_name).sort(byTraffic);
+  window.__routerMaxTotal=Math.max(1,...all.map(c=>c.bytes_rx+c.bytes_tx));
+  $("#router-active-count").textContent=`${active.length} active`;
+  $("#router-history-count").textContent=`${history.length} known`;
+  $("#router-unknown-count").textContent=`${unknown.length} · MAC only`;
+  $("#router-active").innerHTML=active.length?active.map(c=>clientRow(c)).join(""):'<div class="empty">None active right now.</div>';
+  $("#router-history").innerHTML=history.length?history.map(c=>clientRow(c)).join(""):'<div class="empty">Nothing else known.</div>';
+  $("#router-unknown").innerHTML=unknown.length?unknown.map(c=>clientRow(c,c.mac||"—")).join(""):'<div class="empty">None.</div>';
+}
+const BW_DOWNLOAD_COLOR="#3987e5",BW_UPLOAD_COLOR="#d95926";
+function renderBandwidthChart(historyRates){
+  const card=$("#router-chart-card"),container=$("#router-chart");
+  const download=historyRates?.[0]||[],upload=historyRates?.[1]||[];
+  const n=Math.max(download.length,upload.length);
+  if(!n){card.style.display="none";return}
+  card.style.display="block";
+  const max=Math.max(1,...download,...upload);
+  const W=680,H=140,PAD=8;
+  const px=i=>PAD+(W-2*PAD)*(i/Math.max(1,n-1));
+  const py=v=>H-PAD-(H-2*PAD)*((v||0)/max);
+  const path=series=>series.length?"M"+series.map((v,i)=>`${px(i).toFixed(1)},${py(v).toFixed(1)}`).join(" L"):"";
+  container.innerHTML=`
+    <div style="display:flex;gap:16px;margin-bottom:10px;font:10px var(--mono);color:var(--muted)">
+      <span style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:2px;background:${BW_DOWNLOAD_COLOR};display:inline-block"></span>Download</span>
+      <span style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:2px;background:${BW_UPLOAD_COLOR};display:inline-block"></span>Upload</span>
+    </div>
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:140px" id="bw-svg">
+      <line x1="${PAD}" y1="${H-PAD}" x2="${W-PAD}" y2="${H-PAD}" stroke="var(--line)" stroke-width="1"/>
+      <path d="${path(download)}" fill="none" stroke="${BW_DOWNLOAD_COLOR}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="${path(upload)}" fill="none" stroke="${BW_UPLOAD_COLOR}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <div id="bw-tooltip" style="font:10px var(--mono);color:var(--dim);margin-top:6px">Hover the chart for values</div>`;
+  $("#bw-svg").addEventListener("mousemove",event=>{
+    const rect=event.currentTarget.getBoundingClientRect();
+    const i=Math.max(0,Math.min(n-1,Math.round((event.clientX-rect.left)/rect.width*(n-1))));
+    $("#bw-tooltip").textContent=`Sample ${i+1}/${n} · Download ${download[i]??"—"} · Upload ${upload[i]??"—"}`;
+  });
+}
+async function loadRouterOverview(){
+  const button=$("#load-router");button.disabled=true;note("Logging into the router…");
+  try{
+    const d=await api("/api/router/overview",{});
+    lastRouterClients=d.clients||[];
+    lastRouterHistory=d.history_rates||[];
+    renderRouterClients();
+    renderBandwidthChart(d.history_rates);
+    renderTopBandwidth();
+    renderMiniStrip();
+    note(`Loaded ${d.device_count} known devices from the router`);
+  }catch(error){note(error.message,true)}
+  button.disabled=false;
+}
+async function loadNetworks(scan=false){
+  try{const d=await api(scan?"/api/networks/scan":"/api/networks",scan?{}:undefined),best=d.strongest,wifi=d.device_wifi||{};
+    $("#net-strongest").textContent=best?.ssid||"—";$("#net-signal").textContent=best?`${best.signal}${best.unit}`:"—";$("#net-count").textContent=d.count;$("#net-device").textContent=wifi.ssid||wifi.state||"unknown";
+    $("#net-time").textContent=d.scanned_at?`scanned ${new Date(d.scanned_at*1000).toLocaleTimeString()}`:"not scanned";
+    $("#networks").innerHTML=d.networks?.length?d.networks.map((n,i)=>`<div class="network"><strong>${i===0?"★ ":""}${esc(n.ssid)}</strong><span class="bars">${n.signal}${esc(n.unit)}</span><span>ch ${n.channel||"—"}</span><span class="optional">${esc(n.band||"—")}</span><span class="optional">${esc(n.scanner||"—")}</span></div>`).join(""):`<div class="empty">${esc(d.error||"No scan data yet.")}</div>`;
+    if(scan)note(`Found ${d.count} access points · strongest ${best?.ssid||"none"}`);
+  }catch(error){note(error.message,true)}
+}
+let routerAutoLoaded=false,netAutoScanned=false;
+$("#nav").onclick=event=>{const button=event.target.closest("button");if(!button)return;document.querySelectorAll("#nav button").forEach(x=>x.classList.toggle("on",x===button));document.querySelectorAll(".view").forEach(x=>x.classList.toggle("on",x.id==="view-"+button.dataset.view));if(button.dataset.view==="logs")loadLogs();if(button.dataset.view==="networks"){loadNetworks();if(!routerAutoLoaded){routerAutoLoaded=true;loadRouterOverview()}if(!netAutoScanned){netAutoScanned=true;loadNetworks(true)}}};
+$("#chips").onclick=event=>{const chip=event.target.closest(".chip");if(!chip)return;filter=chip.dataset.filter;document.querySelectorAll(".chip").forEach(x=>x.classList.toggle("on",x===chip));render()};
+$("#search").oninput=render;
+$("#feeds").onclick=async event=>{const row=event.target.closest(".feed"),button=event.target.closest("button");if(!row||!button)return;const source=decodeURIComponent(row.dataset.source),feed=feeds.find(f=>f.source===source);try{
+  if(button.dataset.action==="toggle"){await api("/api/feed",{source,enabled:!feed.enabled});feed.enabled=!feed.enabled;render();note(`${shortName(source)} ${feed.enabled?"enabled":"paused"}`)}
+  if(button.dataset.action==="show"){const d=await api("/api/show",{source});note(`On the bar · ${shortName(d.source)} — ${d.title}`)}
+  if(button.dataset.action==="edit"){const form=$("#badge-form");fill(form,feed);form.elements.source.value=source;$("#editor-title").textContent=`${shortName(source)} badge`;$("#editor").showModal()}
+}catch(error){note(error.message,true)}};
+async function bulk(enabled){const list=visible();await Promise.all(list.filter(f=>f.enabled!==enabled).map(f=>api("/api/feed",{source:f.source,enabled})));note(`${enabled?"Enabled":"Paused"} ${list.length} shown sources`);load()}
+$("#enable-visible").onclick=()=>bulk(true);$("#disable-visible").onclick=()=>bulk(false);
+$("#toggle-add-feed").onclick=()=>{
+  const row=$("#add-feed-row"),open=row.hidden;
+  row.hidden=!open;
+  $("#toggle-add-feed").classList.toggle("on",open);
+  if(open)$("#new-feed-name").focus();
+};
+$("#add-feed").onclick=async event=>{
+  const source=$("#new-feed-name").value.trim(),url=$("#new-feed-url").value.trim();
+  if(!source||!url){note("Name and URL both required",true);return}
+  event.target.disabled=true;
+  try{await api("/api/feeds/add",{source,url});$("#new-feed-name").value="";$("#new-feed-url").value="";note(`Added ${source}`);await load();$("#add-feed-row").hidden=true;$("#toggle-add-feed").classList.remove("on")}catch(error){note(error.message,true)}
+  event.target.disabled=false;
+};
+$("#feeds").addEventListener("toggle",event=>{const details=event.target.closest(".feed-group");if(!details)return;details.open?openGroups.add(details.dataset.group):openGroups.delete(details.dataset.group)},true);
+$("#badge-form").onsubmit=async event=>{event.preventDefault();try{await api("/api/badge",values(event.target));$("#editor").close();note("Badge updated");load()}catch(error){note(error.message,true)}};
+$("#close-editor").onclick=()=>$("#editor").close();
+$("#next").onclick=async event=>{event.target.disabled=true;try{const d=await api("/api/next",{});note(`${d.position}/${d.total} · ${shortName(d.source)} — ${d.title}`)}catch(error){note(error.message,true)}event.target.disabled=false};
+$("#refresh").onclick=async event=>{event.target.disabled=true;note("Refreshing enabled sources…");try{const d=await api("/api/preview",{});note(`${d.titles.length} sources refreshed`);load()}catch(error){note(error.message,true)}event.target.disabled=false};
+$("#clock-form").addEventListener("input",previewClockLive);
+$("#clock-form").addEventListener("change",previewClockLive);
+$("#clock-save").onclick=async()=>{try{
+  await api("/api/config",values($("#clock-form")));
+  const d=await api("/api/clock",{});
+  $("#clock-image").src="/api/clock/image?v="+Date.now();
+  note(`Clock active · ${d.time}`);load();
+  const name=prompt("Save this look as a preset? Name it, or Cancel to skip.");
+  if(name&&name.trim()){
+    const body={name:name.trim()};for(const key of CLOCK_FIELDS)body[key]=values($("#clock-form"))[key];
+    try{const saved=await api("/api/clock/presets",body);config.clock_presets=saved.presets;renderPresets();note(`Saved "${name.trim()}" · clock active · ${d.time}`)}catch(error){note(error.message,true)}
+  }
+}catch(error){note(error.message,true)}};
+$("#clock-revert").onclick=()=>{fill($("#clock-form"),config);$("#clock-image").src="/api/clock/image?v="+Date.now();note("Reverted to active clock")};
+$("#clock-stop").onclick=async()=>{try{await api("/api/clock/stop",{});note("Clock stopped");load()}catch(error){note(error.message,true)}};
+$("#button-start").onclick=async event=>{
+  event.target.disabled=true;
+  try{
+    const d=await api("/api/button/start",{});
+    note(d.result==="started"?"START · playing feeds back-to-back, then network info, then clock":"START · skipped to next");
+    load();
+  }catch(error){note(error.message,true)}
+  event.target.disabled=false;
+};
+$("#preset-list").onclick=async event=>{
+  const button=event.target.closest("button");if(!button)return;
+  const name=decodeURIComponent(button.dataset.name);
+  try{
+    if(button.dataset.action==="apply"){const d=await api("/api/clock/presets/apply",{name});note(`"${name}" live on display`);load()}
+    if(button.dataset.action==="delete"){const d=await api("/api/clock/presets/delete",{name});config.clock_presets=d.presets;renderPresets();note(`Deleted "${name}"`)}
+  }catch(error){note(error.message,true)}
+};
+$("#save-settings").onclick=async()=>{try{await api("/api/config",values($("#settings-form")));note("Settings saved");load()}catch(error){note(error.message,true)}};
+async function loadLogs(){try{const d=await api("/api/logs");$("#logs").textContent=(d.log||[]).slice(-180).reverse().join("\n")}catch(error){$("#logs").textContent=error.message}}
+$("#reload-logs").onclick=loadLogs;
+$("#scan-networks").onclick=async event=>{event.target.disabled=true;note("Scanning nearby access points…");await loadNetworks(true);event.target.disabled=false};
+$("#show-network-device").onclick=async event=>{event.target.disabled=true;note("Pushing client info to the bar…");try{const d=await api("/api/networks/show",{});note(`On the bar · ${d.active} active clients · ${d.screens} screens`);load()}catch(error){note(error.message,true)}event.target.disabled=false};
+$("#load-router").onclick=loadRouterOverview;
+$("#view-networks").addEventListener("click",event=>{const row=event.target.closest(".flip-row");if(row)row.classList.toggle("on")});
+$("#copy-network-api").onclick=async()=>{await navigator.clipboard.writeText(location.origin+"/api/networks");note("Network dashboard API URL copied")};
+load();setInterval(load,30000);
+</script>
+</body>
+</html>
