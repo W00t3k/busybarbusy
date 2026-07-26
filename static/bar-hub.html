@@ -69,14 +69,14 @@
     <section class="view" id="view-automations">
       <div class="section-title"><h2>Automation engine</h2><p>current hardware behavior</p></div>
       <div class="panel event-list">
-        <div class="event"><div class="app-icon">▶</div><div><b>START button sequence</b><small>Feeds → network digest → return to clock</small></div><span class="pill on">ACTIVE</span></div>
+        <div class="event"><div class="app-icon">▶</div><div><b>Physical START / STOP</b><small>START runs the digest · STOP cancels to clock</small></div><span class="pill on">ACTIVE</span></div>
         <div class="event"><div class="app-icon">◇</div><div><b>CUSTOM selector</b><small>Launches the configured Clock or RSS surface</small></div><span class="pill on">ACTIVE</span></div>
         <div class="event"><div class="app-icon">◷</div><div><b>Hourly signal</b><small>Flash the configured accent at the top of the hour</small></div><span class="pill" id="hourly-state">—</span></div>
         <div class="event"><div class="app-icon">↻</div><div><b>Feed refresh</b><small id="refresh-rule">Scheduled refresh</small></div><span class="pill on">ACTIVE</span></div>
       </div>
       <div class="section-title"><h2>Physical Input Inspector</h2><p>live firmware events · newest first</p></div>
       <div class="panel">
-        <div class="panel-head" style="padding:16px 18px 0"><span class="label">Turn to CUSTOM, then press, hold and release each button</span><button class="btn" id="clear-inputs" style="margin-left:auto">Clear trace</button></div>
+        <div class="panel-head" style="padding:16px 18px 0"><span class="label">Turn to CUSTOM, then use physical START / STOP</span><button class="btn" id="clear-inputs" style="margin-left:auto">Clear trace</button></div>
         <div class="event-list" id="input-events"><div class="empty">Waiting for a physical control event…</div></div>
       </div>
       <div class="section-title"><h2>Rules engine · next phase</h2><p>priority, expiry, deduplication and button actions</p></div>

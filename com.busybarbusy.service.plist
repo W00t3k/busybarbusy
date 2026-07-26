@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.busybarbusy.service</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/wootock/Apps/busy/.venv/bin/python</string>
+    <string>/Users/wootock/Apps/busy/app.py</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/wootock/Apps/busy</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PYTHONUNBUFFERED</key>
+    <string>1</string>
+    <key>PORT</key>
+    <string>8090</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ProcessType</key>
+  <string>Interactive</string>
+  <key>StandardOutPath</key>
+  <string>/tmp/busybarbusy.stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/busybarbusy.stderr.log</string>
+</dict>
+</plist>

@@ -2536,17 +2536,14 @@ async def auto_play_digest() -> None:
 
 
 async def register_start_press() -> None:
-    """START while idle begins the auto-play run. A press while it's already
-    running advances immediately to the next feed/network instead of waiting
-    out the current item's timer — it never returns to clock from a START
-    press alone (only from leaving CUSTOM entirely, or reaching the end)."""
+    """START begins auto-play; the physical STOP press cancels it to the clock."""
     with STATE.lock:
         digest = list(STATE.rss_digest)
         auto_playing = STATE.auto_play_active
     if auto_playing:
-        LOGGER.info("rss.autoplay.skip_requested")
-        if AUTO_PLAY_SKIP_EVENT:
-            AUTO_PLAY_SKIP_EVENT.set()
+        LOGGER.info("rss.autoplay.stop_requested")
+        if SEQUENCE_CANCEL_EVENT:
+            SEQUENCE_CANCEL_EVENT.set()
         return
     if not digest:
         LOGGER.warning("rss.button.empty digest_not_ready")
@@ -2560,7 +2557,7 @@ async def push_enabled_feeds() -> dict:
         already_playing = STATE.auto_play_active
     if already_playing:
         await register_start_press()
-        return {"result": "skipped", "feeds": len(STATE.rss_digest)}
+        return {"result": "stopped", "feeds": len(STATE.rss_digest)}
     if not await refresh_button_digest():
         raise ValueError("None of the enabled RSS feeds returned a headline")
     with STATE.lock:
@@ -2721,7 +2718,8 @@ async def custom_control_monitor() -> None:
                           and snapshot.get("type") != "NOT_STARTED")
             if active and not profile_was_running:
                 # Active timers reject Canvas draws with 409. Stop the timer first,
-                # then treat this rising edge as a toggle for our own screen.
+                # then treat every rising edge as physical START/STOP for our app.
+                record_input_event(1, {1: 2, 2: 0})
                 stop_payload = {
                     "snapshot": {"type": "NOT_STARTED",
                                  "busy_bar_settings": snapshot.get("busy_bar_settings", {})},
@@ -2755,8 +2753,7 @@ async def scheduler() -> None:
     SEQUENCE_CANCEL_EVENT = asyncio.Event()
     AUTO_PLAY_SKIP_EVENT = asyncio.Event()
     await asyncio.gather(warm_button_digest(), feed_refresher(), headline_rotator(), clock_updater(),
-                         custom_control_monitor(), custom_selector_monitor(),
-                         hourly_light_scheduler(), router_keepalive())
+                         custom_control_monitor(), hourly_light_scheduler(), router_keepalive())
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -2993,7 +2990,7 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("Feed digest isn't warmed up yet — try again in a few seconds")
                 future = asyncio.run_coroutine_threadsafe(register_start_press(), NEXT_LOOP)
                 future.result(timeout=5)
-                self.json_response(200, {"result": "skipped" if was_playing else "started"})
+                self.json_response(200, {"result": "stopped" if was_playing else "started"})
             elif path == "/api/rss/push":
                 if NEXT_LOOP is None:
                     raise ValueError("Scheduler isn't ready yet")
@@ -3145,10 +3142,13 @@ def validate_config(config: Config) -> None:
 
 if __name__ == "__main__":
     LOGGER.info("service.start port=%s feeds=%d", os.environ.get("PORT", "8090"), len(FEEDS))
-    threading.Thread(target=lambda: asyncio.run(scheduler()), daemon=True).start()
     port = int(os.environ.get("PORT", "8090"))
     print(f"Busy RSS is running at http://localhost:{port}")
+    # Claim the singleton port before starting any device workers. Previously,
+    # a second process could fail its bind only after opening another status
+    # WebSocket, leaving the physical controls fighting multiple subscribers.
     server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
+    threading.Thread(target=lambda: asyncio.run(scheduler()), daemon=True).start()
 
     def stop_service(signum, frame) -> None:
         LOGGER.info("service.stop signal=%s", signum)
@@ -3160,8 +3160,8 @@ if __name__ == "__main__":
     try:
         server.serve_forever()
     finally:
-        with STATE.lock:
-            config = STATE.config
-        router_logout(config)
+        # Preserve the reusable router session. Synchronous logout can wait
+        # forever behind a router request holding _ROUTER_LOCK, preventing the
+        # old process from exiting and leaving duplicate bar-control workers.
         server.server_close()
-        LOGGER.info("service.stopped")
+        LOGGER.info("service.stopped router_session=preserved")

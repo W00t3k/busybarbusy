@@ -44,6 +44,17 @@ Configure your BUSY Bar connection, enable the sources you want, and choose an a
 - **Display Studio** sends an operator-authored scrolling message using the
   same firmware-tested renderer as the feed ticker.
 
+For reliable physical START/STOP control on macOS, install the included
+LaunchAgent so exactly one controller stays alive:
+
+```sh
+cp com.busybarbusy.service.plist ~/Library/LaunchAgents/
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.busybarbusy.service.plist
+```
+
+The service claims port `8090` before starting device workers, preventing
+duplicate processes from competing for the bar.
+
 Settings are saved to `config.json`. That file is intentionally ignored because
 it can contain device, router, and API credentials.
 
