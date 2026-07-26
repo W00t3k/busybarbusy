@@ -32,18 +32,23 @@
       ctx.fillStyle = n.warm ? "rgba(255,106,53,.28)" : "rgba(60,231,207,.18)";
       ctx.beginPath(); ctx.arc(n.x, n.y, n.warm ? 1.5 : 1, 0, Math.PI * 2); ctx.fill();
     }
-    if (pulses.length < 4 && Math.random() < .003) {
+    if (pulses.length < 9 && Math.random() < .012) {
       const n = nodes[Math.floor(Math.random() * nodes.length)];
-      pulses.push({x:n.x, y:n.y, born:now, warm:n.warm});
+      pulses.push({x:n.x, y:n.y, born:now, tone:Math.floor(Math.random() * 3)});
     }
-    pulses = pulses.filter(p => now - p.born < 2600);
+    pulses = pulses.filter(p => now - p.born < 3000);
     for (const p of pulses) {
-      const life = (now-p.born)/2600, alpha = Math.sin(life*Math.PI)*.2;
-      ctx.strokeStyle = p.warm ? `rgba(255,106,53,${alpha})` : `rgba(60,231,207,${alpha})`;
+      const life = (now-p.born)/3000, alpha = Math.sin(life*Math.PI)*.2;
+      const rgb = p.tone === 0 ? "255,106,53" : p.tone === 1 ? "244,239,232" : "0,0,0";
+      ctx.strokeStyle = `rgba(${rgb},${p.tone === 2 ? alpha * 1.8 : alpha})`;
       ctx.lineWidth = 1;
-      for (let ring=1; ring<=3; ring++) {
-        ctx.beginPath(); ctx.arc(p.x,p.y,7+ring*10+life*22,Math.PI*1.18,Math.PI*1.82); ctx.stroke();
+      for (let ring=1; ring<=4; ring++) {
+        ctx.beginPath(); ctx.arc(p.x,p.y,5+ring*9+life*28,Math.PI*1.14,Math.PI*1.86); ctx.stroke();
       }
+      const radius = 17 + life * 55, angle = life * Math.PI * 3;
+      ctx.beginPath(); ctx.arc(p.x, p.y, radius, 0, Math.PI * 2); ctx.globalAlpha = .35; ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + Math.cos(angle) * radius, p.y + Math.sin(angle) * radius); ctx.stroke();
+      ctx.globalAlpha = 1;
       ctx.fillStyle=ctx.strokeStyle;ctx.beginPath();ctx.arc(p.x,p.y,1.6,0,Math.PI*2);ctx.fill();
     }
     if (!reduced) requestAnimationFrame(draw);
