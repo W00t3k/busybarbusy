@@ -39,20 +39,38 @@ def busy(path, method="GET"):
         return json.load(response)
 
 
-def aliases():
+def client_settings():
     try:
         value = json.loads(ALIASES_PATH.read_text())
-        return value if isinstance(value, dict) else {}
+        if not isinstance(value, dict):
+            return {"aliases": {}, "unknown": []}
+        if "aliases" not in value:
+            return {"aliases": value, "unknown": []}
+        return {
+            "aliases": value.get("aliases", {}) if isinstance(value.get("aliases"), dict) else {},
+            "unknown": value.get("unknown", []) if isinstance(value.get("unknown"), list) else [],
+        }
     except (FileNotFoundError, json.JSONDecodeError):
-        return {}
+        return {"aliases": {}, "unknown": []}
+
+
+def write_client_settings(value):
+    ALIASES_PATH.write_text(json.dumps(value, indent=2) + "\n")
 
 
 def router_snapshot():
     value = busy("/api/router/overview", "POST")
-    saved = aliases()
+    settings = client_settings()
+    saved = settings["aliases"]
+    forced_unknown = set(settings["unknown"])
     for client in value.get("clients", []):
-        alias = saved.get(str(client.get("mac", "")).lower())
-        if alias:
+        mac = str(client.get("mac", "")).lower()
+        alias = saved.get(mac)
+        if mac in forced_unknown:
+            client["name"] = mac or "Unknown device"
+            client["has_name"] = False
+            client["forced_unknown"] = True
+        elif alias:
             client["name"] = alias
             client["has_name"] = True
             client["local_alias"] = True
@@ -64,13 +82,31 @@ def save_alias(mac, name):
     name = " ".join(name.split())[:40]
     if not mac:
         raise ValueError("Device MAC is required")
-    saved = aliases()
+    settings = client_settings()
+    saved = settings["aliases"]
     if name:
         saved[mac] = name
+        settings["unknown"] = [item for item in settings["unknown"] if item != mac]
     else:
         saved.pop(mac, None)
-    ALIASES_PATH.write_text(json.dumps(saved, indent=2) + "\n")
+    write_client_settings(settings)
     return {"mac": mac, "name": name}
+
+
+def set_known(mac, known):
+    mac = mac.strip().lower()
+    if not mac:
+        raise ValueError("Device MAC is required")
+    settings = client_settings()
+    unknown = set(settings["unknown"])
+    if known:
+        unknown.discard(mac)
+    else:
+        unknown.add(mac)
+        settings["aliases"].pop(mac, None)
+    settings["unknown"] = sorted(unknown)
+    write_client_settings(settings)
+    return {"mac": mac, "known": known}
 
 
 def snapshot():
@@ -217,6 +253,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(busy("/api/networks/scan", "POST"))
             elif self.path == "/api/alias":
                 self.send_json(save_alias(str(body.get("mac", "")), str(body.get("name", ""))))
+            elif self.path == "/api/known":
+                self.send_json(set_known(str(body.get("mac", "")), bool(body.get("known", False))))
             else:
                 self.send_json({"error": "not found"}, 404)
         except Exception as error:
