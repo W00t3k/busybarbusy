@@ -94,6 +94,8 @@ Environment variables:
 | `POST` | `/api/refresh` | Fetch enabled feeds and push the selected headline |
 | `POST` | `/api/show` | Push one selected source |
 | `POST` | `/api/message` | Push a direct 72×16 message from Bar Hub |
+| `GET` | `/api/inputs` | Recent raw physical-control events for gesture mapping |
+| `POST` | `/api/inputs/clear` | Clear the physical input trace |
 | `GET` | `/api/logs` | Recent fetch, display, timing, and error logs |
 
 Logs rotate automatically at 1 MB with three backups. Feed text is normalized

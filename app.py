@@ -341,6 +341,7 @@ def stream_device_controls(config: Config, callback) -> None:
                         details = {n: v for n, w, v in protobuf_fields(event_value) if w == 0}
                         if time.monotonic() < controls_ready_at:
                             continue
+                        record_input_event(event_number, details)
                         if event_number == 2:  # physical mode switch
                             callback("custom" if details.get(1) == 1 else "other")
                         if event_number == 1 and details.get(1) == 2 and details.get(2, 0) == 0:
@@ -1218,6 +1219,8 @@ class State:
         self.network_scanned_at: Optional[float] = None
         self.network_scan_error = ""
         self.device_wifi: dict = {}
+        self.input_events: list[dict] = []
+        self.last_input_at: Optional[float] = None
 
     def refresh(self, send: bool = True) -> dict:
         with self.lock:
@@ -1245,6 +1248,29 @@ class State:
 
 
 STATE = State()
+
+
+def record_input_event(event_number: int, details: dict[int, int]) -> None:
+    """Keep a bounded, browser-safe trace of live physical control events."""
+    now = time.time()
+    if event_number == 2:
+        label = "CUSTOM selected" if details.get(1) == 1 else "Selector changed"
+    elif event_number == 1 and details.get(1) == 2:
+        label = "START pressed" if details.get(2, 0) == 0 else "START changed"
+    else:
+        label = f"Input event {event_number}"
+    with STATE.lock:
+        previous = STATE.last_input_at
+        STATE.last_input_at = now
+        STATE.input_events.append({
+            "timestamp": now,
+            "delta_ms": round((now - previous) * 1000) if previous else None,
+            "event": event_number,
+            "label": label,
+            "details": {str(key): value for key, value in sorted(details.items())},
+        })
+        del STATE.input_events[:-100]
+    LOGGER.info("input.raw event=%s label=%r details=%s", event_number, label, details)
 
 
 def show_clock() -> dict:
@@ -2865,6 +2891,17 @@ class Handler(BaseHTTPRequestHandler):
             except FileNotFoundError:
                 lines = []
             self.json_response(200, {"log": lines})
+        elif path == "/api/inputs":
+            with STATE.lock:
+                events = list(STATE.input_events)
+                custom_active = STATE.custom_active
+                auto_play_active = STATE.auto_play_active
+            self.json_response(200, {
+                "events": events,
+                "custom_active": custom_active,
+                "auto_play_active": auto_play_active,
+                "connected": bool(events),
+            })
         elif path == "/api/networks":
             with STATE.lock:
                 networks = list(STATE.networks)
@@ -2968,6 +3005,11 @@ class Handler(BaseHTTPRequestHandler):
                     str(body.get("color", "#FFFFFFFF")),
                     bool(body.get("sound")),
                 ))
+            elif path == "/api/inputs/clear":
+                with STATE.lock:
+                    STATE.input_events.clear()
+                    STATE.last_input_at = None
+                self.json_response(200, {"result": "cleared"})
             elif path == "/api/next":
                 self.json_response(200, request_next())
             elif path == "/api/networks/scan":
