@@ -671,18 +671,18 @@ def badge_logo_png(label: str, background: Pixel, foreground: Pixel) -> bytes:
 
 
 def npr_logo_png() -> bytes:
-    """Render NPR's red/black/blue mini-mark for the tiny BUSY Bar canvas."""
-    colors = ((214, 32, 33, 255), (0, 0, 5, 255), (35, 123, 189, 255))
-    pixels = [[CLEAR for _ in range(17)] for _ in range(9)]
+    """Render a crisp, proportional NPR block mark for the BUSY Bar canvas."""
+    colors = ((204, 30, 38, 255), (18, 18, 20, 255), (38, 116, 174, 255))
+    pixels = [[CLEAR for _ in range(18)] for _ in range(9)]
     for index, (letter, color) in enumerate(zip("NPR", colors)):
         left = index * 6
         for y in range(1, 8):
-            for x in range(left, left + 5):
+            for x in range(left, left + 6):
                 pixels[y][x] = color
         for y, row in enumerate(FONT_3X5[letter]):
             for x, bit in enumerate(row):
                 if bit == "1":
-                    pixels[y + 2][left + x + 1] = (255, 255, 255, 255)
+                    pixels[y + 2][left + x + 2] = (255, 255, 255, 255)
     return encode_png(pixels)
 
 
@@ -862,6 +862,8 @@ WIRED_PALETTES = {
 def icon_details(source: str) -> tuple[str, bytes, int, str]:
     if source == "CLOCK":
         return "clock.png", flip_clock_png(), 72, "#F8E8C5FF"
+    if source.startswith("NPR "):
+        return "npr-pixel-v3.png", npr_logo_png(), 21, "#FFFFFFFF"
     favicon = publisher_favicon(source)
     if favicon:
         content = favicon.read_bytes()
@@ -873,8 +875,6 @@ def icon_details(source: str) -> tuple[str, bytes, int, str]:
         return filename, wired_logo_png(accent, secondary), 32, color
     if source == "UNLEASHEDFLIP":
         return "flipper.png", pixel_icon_png("flipper"), 16, "#9EEDFFFF"
-    if source.startswith("NPR "):
-        return "npr-pixel-v2.png", npr_logo_png(), 20, "#FFFFFFFF"
     if source.startswith("VERGE "):
         return "verge-pixel-v2.png", verge_logo_png(), 16, "#FFFFFFFF"
     if source == "HACKER NEWS":

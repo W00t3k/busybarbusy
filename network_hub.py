@@ -1,0 +1,125 @@
+#!/usr/bin/env python3
+"""Live system + Wi-Fi + router visualization on port 8315."""
+
+from collections import deque
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import json
+from pathlib import Path
+import socket
+import time
+import urllib.request
+
+import psutil
+
+ROOT = Path(__file__).resolve().parent
+PAGE = ROOT / "static" / "network-hub.html"
+BUSY = "http://127.0.0.1:8090"
+HISTORY = {key: deque(maxlen=120) for key in ("cpu", "memory", "disk", "down", "up")}
+LAST = {"at": 0.0, "recv": 0, "sent": 0}
+
+
+def human(value):
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if value < 1024 or unit == "TB":
+            return f"{value:.1f} {unit}"
+        value /= 1024
+
+
+def busy(path, method="GET"):
+    request = urllib.request.Request(BUSY + path, data=b"{}" if method == "POST" else None,
+                                     headers={"Content-Type": "application/json"}, method=method)
+    with urllib.request.urlopen(request, timeout=15) as response:
+        return json.load(response)
+
+
+def snapshot():
+    now = time.time()
+    cpu = psutil.cpu_percent(interval=0.1)
+    memory = psutil.virtual_memory()
+    root = psutil.disk_usage("/")
+    io = psutil.net_io_counters()
+    elapsed = now - LAST["at"] if LAST["at"] else 0
+    down = max(0, (io.bytes_recv - LAST["recv"]) / elapsed) if elapsed else 0
+    up = max(0, (io.bytes_sent - LAST["sent"]) / elapsed) if elapsed else 0
+    LAST.update(at=now, recv=io.bytes_recv, sent=io.bytes_sent)
+    values = {"cpu": cpu, "memory": memory.percent, "disk": root.percent,
+              "down": down, "up": up}
+    for key, value in values.items():
+        HISTORY[key].append(round(value, 2))
+    processes = []
+    for process in psutil.process_iter(("pid", "name", "cpu_percent", "memory_percent")):
+        try:
+            info = process.info
+            processes.append({"pid": info["pid"], "name": info["name"] or "process",
+                              "cpu": round(info["cpu_percent"] or 0, 1),
+                              "memory": round(info["memory_percent"] or 0, 1)})
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+    processes.sort(key=lambda item: (item["cpu"], item["memory"]), reverse=True)
+    volumes = []
+    for item in psutil.disk_partitions(all=False):
+        try:
+            usage = psutil.disk_usage(item.mountpoint)
+            volumes.append({"name": item.mountpoint, "percent": usage.percent,
+                            "used": human(usage.used), "total": human(usage.total)})
+        except (OSError, PermissionError):
+            pass
+    return {
+        "at": now, "host": socket.gethostname(), "uptime": int(now - psutil.boot_time()),
+        "cpu": {"percent": cpu, "cores": psutil.cpu_count(), "load": list(psutil.getloadavg())},
+        "memory": {"percent": memory.percent, "used": human(memory.used),
+                   "available": human(memory.available), "total": human(memory.total)},
+        "disk": {"percent": root.percent, "volumes": volumes[:8]},
+        "network": {"down": down, "up": up, "down_label": human(down) + "/s",
+                    "up_label": human(up) + "/s", "received": human(io.bytes_recv),
+                    "sent": human(io.bytes_sent)},
+        "processes": processes[:12], "history": {key: list(value) for key, value in HISTORY.items()},
+    }
+
+
+class Handler(BaseHTTPRequestHandler):
+    def send_json(self, value, status=200):
+        body = json.dumps(value).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        try:
+            if self.path == "/api/system":
+                self.send_json(snapshot())
+            elif self.path == "/api/wifi":
+                self.send_json(busy("/api/networks"))
+            elif self.path in ("/", "/index.html"):
+                body = PAGE.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            else:
+                self.send_json({"error": "not found"}, 404)
+        except Exception as error:
+            self.send_json({"error": str(error)}, 503)
+
+    def do_POST(self):
+        try:
+            if self.path == "/api/router":
+                self.send_json(busy("/api/router/overview", "POST"))
+            elif self.path == "/api/wifi/scan":
+                self.send_json(busy("/api/networks/scan", "POST"))
+            else:
+                self.send_json({"error": "not found"}, 404)
+        except Exception as error:
+            self.send_json({"error": str(error)}, 503)
+
+    def log_message(self, fmt, *args):
+        return
+
+
+if __name__ == "__main__":
+    print("Network Hub is running at http://localhost:8315")
+    ThreadingHTTPServer(("0.0.0.0", 8315), Handler).serve_forever()
