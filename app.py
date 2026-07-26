@@ -1540,6 +1540,62 @@ def clear_app(config: Config, application_name: str) -> None:
     request(url, headers=headers, method="DELETE")
 
 
+def show_message(text: str, color: str = "#FFFFFFFF", sound: bool = False) -> dict:
+    """Put an operator-authored message on the bar using the existing local transport."""
+    text = clean_text(text)[:240]
+    if not text:
+        raise ValueError("Message cannot be empty")
+    if not re.fullmatch(r"#[0-9A-Fa-f]{8}", color):
+        raise ValueError("Message color must use #RRGGBBAA format")
+    with STATE.lock:
+        config = STATE.config
+    payload = {
+        "application_name": "busy_hub",
+        "priority": 100,
+        "elements": [{
+            "id": "hub-message",
+            "type": "text",
+            "text": text,
+            "font": "small",
+            "color": color.upper(),
+            "width": 68,
+            "align": "mid_left",
+            "x": 2,
+            "y": 10,
+            "display": "front",
+            "scroll_rate": 900,
+            "scroll_start_delay": 250,
+            "scroll_repeat_delay": 800,
+            "timeout": 0,
+        }],
+    }
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    if config.api_key:
+        headers["X-API-Key"] = config.api_key
+    base = config.device_url.rstrip("/") + "/api/display/draw"
+    try:
+        request(base + "?" + urllib.parse.urlencode({"application_name": "busy_hub"}),
+                headers=headers, method="DELETE")
+    except urllib.error.HTTPError as exc:
+        if exc.code != 404:
+            raise
+    request(base,
+            data=json.dumps(payload).encode(), headers=headers, method="POST")
+    # Only stop the updater after the new priority-100 layer is safely live.
+    # If the device rejects the draw, the current clock remains untouched.
+    with STATE.lock:
+        STATE.clock_active = False
+    if sound:
+        try:
+            request(config.device_url.rstrip("/") + "/api/audio/play",
+                    data=json.dumps({"sound": "notification"}).encode(),
+                    headers=headers, method="POST", timeout=5)
+        except Exception as exc:
+            LOGGER.info("hub.message.sound_unavailable error=%s", exc)
+    LOGGER.info("hub.message text=%r color=%s sound=%s", text, color, sound)
+    return {"result": "shown", "text": text, "color": color.upper(), "sound": sound}
+
+
 def release_active_timer(config: Config) -> bool:
     """Release firmware timer ownership so priority-100 Canvas apps can draw."""
     base = config.device_url.rstrip("/")
@@ -2696,6 +2752,14 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store")  # always serve the latest UI
             self.end_headers()
             self.wfile.write(body)
+        elif path in ("/hub", "/hub/"):
+            body = (ROOT / "static" / "bar-hub.html").read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
         elif path == "/favicon.ico":
             body = site_favicon_png()
             self.send_response(200)
@@ -2898,6 +2962,12 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("Scheduler isn't ready yet")
                 future = asyncio.run_coroutine_threadsafe(push_enabled_feeds(), NEXT_LOOP)
                 self.json_response(200, future.result(timeout=20))
+            elif path == "/api/message":
+                self.json_response(200, show_message(
+                    str(body.get("text", "")),
+                    str(body.get("color", "#FFFFFFFF")),
+                    bool(body.get("sound")),
+                ))
             elif path == "/api/next":
                 self.json_response(200, request_next())
             elif path == "/api/networks/scan":

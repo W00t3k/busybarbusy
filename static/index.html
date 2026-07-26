@@ -139,6 +139,7 @@
         <button data-view="networks"><span>03</span>Networks</button>
         <button data-view="settings"><span>04</span>Settings</button>
         <button data-view="logs"><span>05</span>Activity</button>
+        <button data-link="/hub"><span>06</span>Bar Hub ↗</button>
       </nav>
       <div class="side-rule"></div>
       <div class="side-note">Local control<br>192.168.2.69:8090</div>
@@ -445,7 +446,7 @@ async function loadNetworks(scan=false){
   }catch(error){note(error.message,true)}
 }
 let routerAutoLoaded=false,netAutoScanned=false;
-$("#nav").onclick=event=>{const button=event.target.closest("button");if(!button)return;const view=button.dataset.view;document.querySelectorAll("#nav button").forEach(x=>x.classList.toggle("on",x===button));document.querySelectorAll(".view").forEach(x=>x.classList.toggle("on",x.id==="view-"+view));setClockPreviewActive(view==="clock");if(view==="logs")loadLogs();if(view==="networks"){loadNetworks();if(!routerAutoLoaded){routerAutoLoaded=true;loadRouterOverview()}if(!netAutoScanned){netAutoScanned=true;loadNetworks(true)}}};
+$("#nav").onclick=event=>{const button=event.target.closest("button");if(!button)return;if(button.dataset.link){location.href=button.dataset.link;return}const view=button.dataset.view;document.querySelectorAll("#nav button").forEach(x=>x.classList.toggle("on",x===button));document.querySelectorAll(".view").forEach(x=>x.classList.toggle("on",x.id==="view-"+view));setClockPreviewActive(view==="clock");if(view==="logs")loadLogs();if(view==="networks"){loadNetworks();if(!routerAutoLoaded){routerAutoLoaded=true;loadRouterOverview()}if(!netAutoScanned){netAutoScanned=true;loadNetworks(true)}}};
 $("#chips").onclick=event=>{const chip=event.target.closest(".chip");if(!chip)return;filter=chip.dataset.filter;document.querySelectorAll(".chip").forEach(x=>x.classList.toggle("on",x===chip));render()};
 $("#search").oninput=render;
 $("#feeds").onclick=async event=>{const row=event.target.closest(".feed"),button=event.target.closest("button");if(!row||!button)return;const source=decodeURIComponent(row.dataset.source),feed=feeds.find(f=>f.source===source);try{

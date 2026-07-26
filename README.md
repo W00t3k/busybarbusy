@@ -1,10 +1,10 @@
 # BUSYBARBUSY
 
-> A tiny RSS command center for the LaMetric BUSY Bar.
+> A local-first command center for the BUSY Bar.
 
-Turn RSS and Atom feeds into a live, pixel-perfect headline ticker—with source
-icons, freshness-colored LEDs, a flip clock, and direct control from a polished
-local dashboard.
+Turn the 72×16 display into a live information surface—with RSS, publisher
+icons, a flip clock, network intelligence, direct messages, physical-button
+workflows, and one unified Bar Hub.
 
 ## What it does
 
@@ -14,6 +14,8 @@ local dashboard.
 - Colors the LED strip by freshness: green, amber, orange, slate, or gray
 - Supports one-click per-source display, preview-only refreshes, and scheduled runs
 - Includes a retro flip clock and local network views
+- Includes **Bar Hub**, a dedicated command center for apps, automations,
+  display composition, activity, and device transports
 - Runs without third-party Python packages
 
 ## Quick start
@@ -26,14 +28,21 @@ cd busybarbusy
 ./run.sh
 ```
 
-The launcher creates `.venv` on first run. Open <http://localhost:8090>, configure
-your BUSY Bar connection, enable the sources you want, and choose an action:
+The launcher creates `.venv` on first run. Open the interfaces:
+
+- **Bar Hub:** <http://localhost:8090/hub>
+- **Classic feed control:** <http://localhost:8090>
+- **Network Hub:** <http://localhost:8315>
+
+Configure your BUSY Bar connection, enable the sources you want, and choose an action:
 
 - **Push RSS** fetches enabled feeds and immediately sends the current headline
   to the bar.
 - **Next** advances to the next loaded headline.
 - **Refresh** fetches a preview without changing the display.
 - **Show** pushes one specific source.
+- **Display Studio** sends an operator-authored scrolling message using the
+  same firmware-tested renderer as the feed ticker.
 
 Settings are saved to `config.json`. That file is intentionally ignored because
 it can contain device, router, and API credentials.
@@ -84,6 +93,7 @@ Environment variables:
 | `POST` | `/api/preview` | Fetch and parse enabled feeds without changing the display |
 | `POST` | `/api/refresh` | Fetch enabled feeds and push the selected headline |
 | `POST` | `/api/show` | Push one selected source |
+| `POST` | `/api/message` | Push a direct 72×16 message from Bar Hub |
 | `GET` | `/api/logs` | Recent fetch, display, timing, and error logs |
 
 Logs rotate automatically at 1 MB with three backups. Feed text is normalized
