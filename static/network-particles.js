@@ -32,13 +32,13 @@
       ctx.fillStyle = n.warm ? "rgba(255,106,53,.28)" : "rgba(60,231,207,.18)";
       ctx.beginPath(); ctx.arc(n.x, n.y, n.warm ? 1.5 : 1, 0, Math.PI * 2); ctx.fill();
     }
-    if (pulses.length < 9 && Math.random() < .012) {
+    if (pulses.length < 11 && Math.random() < .015) {
       const n = nodes[Math.floor(Math.random() * nodes.length)];
       pulses.push({x:n.x, y:n.y, born:now, tone:Math.floor(Math.random() * 3)});
     }
     pulses = pulses.filter(p => now - p.born < 3000);
     for (const p of pulses) {
-      const life = (now-p.born)/3000, alpha = Math.sin(life*Math.PI)*.2;
+      const life = (now-p.born)/3000, alpha = Math.sin(life*Math.PI)*.17;
       const rgb = p.tone === 0 ? "255,106,53" : p.tone === 1 ? "244,239,232" : "0,0,0";
       ctx.strokeStyle = `rgba(${rgb},${p.tone === 2 ? alpha * 1.8 : alpha})`;
       ctx.lineWidth = 1;

@@ -196,7 +196,8 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 body = path.read_bytes()
                 self.send_response(200)
-                self.send_header("Content-Type", "image/png")
+                media_type = {"svg": "image/svg+xml", "ico": "image/x-icon"}.get(path.suffix.lstrip("."), "image/png")
+                self.send_header("Content-Type", media_type)
                 self.send_header("Cache-Control", "public, max-age=86400")
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
