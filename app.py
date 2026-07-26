@@ -1253,13 +1253,14 @@ STATE = State()
 def record_input_event(event_number: int, details: dict[int, int]) -> None:
     """Keep a bounded, browser-safe trace of live physical control events."""
     now = time.time()
-    if event_number == 2:
-        label = "CUSTOM selected" if details.get(1) == 1 else "Selector changed"
-    elif event_number == 1 and details.get(1) == 2:
-        label = "START pressed" if details.get(2, 0) == 0 else "START changed"
-    else:
-        label = f"Input event {event_number}"
     with STATE.lock:
+        if event_number == 2:
+            label = "CUSTOM selected" if details.get(1) == 1 else "Selector changed"
+        elif event_number == 1 and details.get(1) == 2:
+            label = ("STOP pressed" if STATE.auto_play_active else "START pressed") \
+                if details.get(2, 0) == 0 else "START changed"
+        else:
+            label = f"Input event {event_number}"
         previous = STATE.last_input_at
         STATE.last_input_at = now
         STATE.input_events.append({
@@ -2478,7 +2479,13 @@ async def auto_play_digest() -> None:
         AUTO_PLAY_SKIP_EVENT.clear()
         return "skip"
 
+    stopped = False
     try:
+        try:
+            await asyncio.to_thread(send_bar_screen, config, "START", "RSS", 0)
+            await asyncio.sleep(0.65)
+        except Exception as exc:
+            LOGGER.warning("rss.autoplay.start_feedback_failed error=%s", exc)
         for index, item in enumerate(digest):
             with STATE.lock:
                 STATE.rss_cursor = index
@@ -2495,6 +2502,7 @@ async def auto_play_digest() -> None:
                 continue
             outcome = await wait_step(duration)
             if outcome == "cancel":
+                stopped = True
                 LOGGER.info("rss.autoplay.cancelled")
                 return
             if outcome == "skip":
@@ -2520,6 +2528,7 @@ async def auto_play_digest() -> None:
                 continue
             outcome = await wait_step(4)
             if outcome == "cancel":
+                stopped = True
                 LOGGER.info("rss.autoplay.cancelled")
                 return
             if outcome == "skip":
@@ -2532,6 +2541,12 @@ async def auto_play_digest() -> None:
             still_custom = STATE.custom_active
         LOGGER.info("rss.autoplay.done")
         if still_custom:
+            if stopped:
+                try:
+                    await asyncio.to_thread(send_bar_screen, config, "STOPPED", "CLOCK", 0)
+                    await asyncio.sleep(0.8)
+                except Exception as exc:
+                    LOGGER.warning("rss.autoplay.stop_feedback_failed error=%s", exc)
             await asyncio.to_thread(show_clock)
 
 
