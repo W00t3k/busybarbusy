@@ -1,7 +1,7 @@
 (() => {
   const canvas = document.getElementById("signalField"), ctx = canvas.getContext("2d");
   const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
-  let w = 0, h = 0, nodes = [], pulses = [];
+  let w = 0, h = 0, nodes = [], pulses = [], beacons = [];
   function resize() {
     const dpr = Math.min(devicePixelRatio || 1, 2); w = innerWidth; h = innerHeight;
     canvas.width = w * dpr; canvas.height = h * dpr;
@@ -12,6 +12,13 @@
       x: Math.random() * w, y: Math.random() * h,
       vx: (Math.random() - .5) * .055, vy: (Math.random() - .5) * .055,
       warm: i % 4 === 0
+    }));
+    beacons = Array.from({length: Math.max(4, Math.min(8, Math.round(w / 230)))}, (_, i) => ({
+      x: (i + .5) / Math.max(4, Math.min(8, Math.round(w / 230))) * w,
+      y: 80 + Math.random() * Math.max(120, h - 160),
+      phase: Math.random() * Math.PI * 2,
+      tone: i % 3,
+      drift: (Math.random() - .5) * .08
     }));
   }
   function draw(now = 0) {
@@ -31,6 +38,18 @@
     for (const n of nodes) {
       ctx.fillStyle = n.warm ? "rgba(255,106,53,.28)" : "rgba(60,231,207,.18)";
       ctx.beginPath(); ctx.arc(n.x, n.y, n.warm ? 1.5 : 1, 0, Math.PI * 2); ctx.fill();
+    }
+    for (const b of beacons) {
+      if (!reduced) b.y += b.drift;
+      if (b.y < 60) b.y = h - 60; if (b.y > h - 50) b.y = 60;
+      const wave = (.5 + .5 * Math.sin(now / 1300 + b.phase)), alpha = .025 + wave * .055;
+      const rgb = b.tone === 0 ? "255,122,0" : b.tone === 1 ? "244,239,232" : "0,0,0";
+      ctx.strokeStyle = `rgba(${rgb},${b.tone === 2 ? alpha * 2.4 : alpha})`;
+      ctx.lineWidth = 1;
+      for (let ring = 1; ring <= 3; ring++) {
+        ctx.beginPath(); ctx.arc(b.x, b.y, 5 + ring * 8 + wave * 5, Math.PI * 1.18, Math.PI * 1.82); ctx.stroke();
+      }
+      ctx.fillStyle = ctx.strokeStyle; ctx.beginPath(); ctx.arc(b.x, b.y, 1.5, 0, Math.PI * 2); ctx.fill();
     }
     if (pulses.length < 11 && Math.random() < .015) {
       const n = nodes[Math.floor(Math.random() * nodes.length)];
