@@ -33,6 +33,7 @@ The launcher creates `.venv` on first run. Open the interfaces:
 - **Bar Hub:** <http://localhost:8090/hub>
 - **Classic feed control:** <http://localhost:8090>
 - **Network Hub:** <http://localhost:8315>
+- **BUSY Bar Emulator:** <http://localhost:8088>
 
 Configure your BUSY Bar connection, enable the sources you want, and choose an action:
 
@@ -55,6 +56,12 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.busybarbusy.service.
 The service claims port `8090` before starting device workers, preventing
 duplicate processes from competing for the bar.
 
+The Bar Hub also detects the firmware-compatible
+[BUSY Bar Emulator](https://github.com/maxswinkels/busybar-emulator) on port
+`8088` and links directly to its app runner and capture tools. The included
+`com.busybarbusy.emulator.plist` keeps that separate service available without
+conflicting with applications already using port `8080`.
+
 Settings are saved to `config.json`. That file is intentionally ignored because
 it can contain device, router, and API credentials.
 
@@ -69,6 +76,14 @@ publishers use locally bundled derivatives of their official favicons, while
 all WIRED feeds retain the full tiled wordmark with category-specific
 colorways. Any feed you add receives a tiny white RSS glyph. The same asset is
 used in the web source list and uploaded to the physical display.
+
+## Distributable apps
+
+Standalone, community-gallery-ready apps live in
+[`community-apps`](community-apps/). **Busy Newsroom** is the first packaged
+release: it has no dependencies, accepts any RSS or Atom URL, targets a real
+bar or the emulator with `--host`, and includes a real 720×160 emulator
+preview.
 
 ## Display behavior
 

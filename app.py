@@ -2953,6 +2953,20 @@ class Handler(BaseHTTPRequestHandler):
                 "rss_paused": rss_paused,
                 "connected": bool(events),
             })
+        elif path == "/api/emulator":
+            try:
+                value = json.loads(request("http://127.0.0.1:8088/api/version", timeout=3))
+                self.json_response(200, {
+                    "running": True,
+                    "url": "http://127.0.0.1:8088",
+                    "api_semver": value.get("api_semver", "unknown"),
+                })
+            except Exception as exc:
+                self.json_response(200, {
+                    "running": False,
+                    "url": "http://127.0.0.1:8088",
+                    "error": str(exc),
+                })
         elif path == "/api/networks":
             with STATE.lock:
                 networks = list(STATE.networks)

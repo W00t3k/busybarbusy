@@ -1,0 +1,9 @@
+name: Busy Newsroom
+author: W00t3k
+description: Scroll live headlines from any RSS or Atom feed across the BUSY Bar.
+tags:
+  - info
+  - news
+  - rss
+preview: ./preview.png
+repo: https://github.com/W00t3k/busybarbusy
