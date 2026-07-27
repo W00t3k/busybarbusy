@@ -305,6 +305,8 @@ def stream_device_controls(config: Config, callback) -> None:
     try:
         key = base64.b64encode(os.urandom(16)).decode()
         path = (parsed.path.rstrip("/") if parsed.path else "") + "/api/status/ws"
+        if config.api_key:
+            path += "?" + urllib.parse.urlencode({"x-api-token": config.api_key})
         handshake = (
             f"GET {path} HTTP/1.1\r\nHost: {parsed.hostname}\r\nUpgrade: websocket\r\n"
             f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\n"
@@ -323,7 +325,9 @@ def stream_device_controls(config: Config, callback) -> None:
         while True:
             opcode, frame = websocket_read_frame(sock)
             if opcode == 0x8:  # close
-                raise EOFError("WebSocket closed by device")
+                code = struct.unpack("!H", frame[:2])[0] if len(frame) >= 2 else 1005
+                reason = frame[2:].decode("utf-8", "replace") if len(frame) > 2 else ""
+                raise EOFError(f"WebSocket closed by device code={code} reason={reason!r}")
             if opcode == 0x9:  # ping — device drops the connection if this goes unanswered
                 websocket_send_control(sock, 0xA, frame)
                 continue
@@ -2798,7 +2802,8 @@ async def scheduler() -> None:
     SEQUENCE_CANCEL_EVENT = asyncio.Event()
     AUTO_PLAY_SKIP_EVENT = asyncio.Event()
     await asyncio.gather(warm_button_digest(), feed_refresher(), headline_rotator(), clock_updater(),
-                         custom_control_monitor(), hourly_light_scheduler(), router_keepalive())
+                         custom_control_monitor(), custom_selector_monitor(),
+                         hourly_light_scheduler(), router_keepalive())
 
 
 class Handler(BaseHTTPRequestHandler):
