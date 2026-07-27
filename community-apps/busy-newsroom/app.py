@@ -77,6 +77,17 @@ def draw(base, source, headline):
     )
     with urllib.request.urlopen(req, timeout=5):
         pass
+    sound = urllib.request.Request(
+        base + "/api/audio/play",
+        data=json.dumps({
+            "application_name": APP,
+            "stock_path": "shared/calendar_event_starts.snd",
+        }).encode(),
+        method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(sound, timeout=5):
+        pass
 
 
 def main():
@@ -88,6 +99,16 @@ def main():
     parser.add_argument("--limit", type=int, default=12, help="headlines fetched per refresh")
     args = parser.parse_args()
     base = "http://" + args.host.replace("http://", "").rstrip("/")
+    try:
+        urllib.request.urlopen(
+            urllib.request.Request(
+                base + "/api/audio/volume?volume=70&silent=1",
+                method="POST",
+            ),
+            timeout=5,
+        ).read()
+    except urllib.error.URLError:
+        pass
 
     print(f"{APP} → {base} · {args.feed}  (Ctrl-C to stop)")
     while True:

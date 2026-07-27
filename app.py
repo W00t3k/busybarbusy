@@ -385,6 +385,13 @@ def push_emulator_frame() -> dict:
             except Exception:
                 pass
             time.sleep(0.12)
+    story_text = next((
+        str(element.get("text") or "")
+        for element in reversed(elements)
+        if element.get("type") == "text" and element.get("text")
+    ), "")
+    if story_text:
+        play_story_sound(config, f"STAGING\n{story_text}")
     return {
         "result": "pushed",
         "source_application": frame.get("application_name"),
@@ -1167,7 +1174,9 @@ def display_payload(config: Config, item: Headline, position: int = 0, total: in
         "opacity": 100, "timeout": 0,
     }, {
         "id": "headline", "type": "text", "text": text[:500],
-        "font": "large" if source == "CLOCK" else config.font, "color": color, "width": width,
+        "font": "large" if source == "CLOCK" else (
+            "tiny" if config.font == "tiny" else "small"
+        ), "color": color, "width": width,
         "align": "mid_left", "x": text_x, "y": 8 if source == "CLOCK" else 10,
         "display": "front", "scroll_rate": 900, "scroll_start_delay": 250,
         "scroll_repeat_delay": 800, "timeout": 0,
@@ -1183,10 +1192,11 @@ def headline_duration(config: Config, item: Headline, position: int = 0, total: 
     """Estimate one complete marquee pass from font width and scroll rate."""
     if item.source == "CLOCK":
         return 30.0
+    rss_font = "tiny" if config.font == "tiny" else "small"
     pixels_per_character = {
         "tiny": 4, "small": 5, "normal": 6, "condensed": 5,
         "bold": 7, "large": 8, "extra_large": 10, "global": 6,
-    }[config.font]
+    }[rss_font]
     _, _, text_x, _ = icon_details(item.source)
     viewport_width = 72 - text_x
     text = headline_text(config, item, position, total)
@@ -1217,6 +1227,8 @@ def send_to_device(config: Config, item: Headline, position: int = 0, total: int
         clear_app(config, "busy_clock")
         result = request(url, data=json.dumps(payload).encode(), headers=headers)
     parsed = json.loads(result or b"{}")
+    if item.source != "CLOCK":
+        play_story_sound(config, f"{item.source}\n{item.title}")
     LOGGER.info("display.ok source=%s age=%s position=%d/%d title=%r result=%s",
                 item.source, format_age(item.published) or "-", position, total, item.title, parsed)
     return parsed
@@ -1397,6 +1409,7 @@ class State:
         self.last_run: Optional[float] = None
         self.last_error = ""
         self.last_source = ""
+        self.last_sound_key = ""
         self.last_titles: list[str] = []
         self.last_items: list[Headline] = []
         self.cursor = 0  # rotation position, shared so "next" works while paused
@@ -1451,6 +1464,35 @@ class State:
 
 
 STATE = State()
+
+
+def play_story_sound(config: Config, story_key: str) -> bool:
+    """Play one stock chime when the visible RSS story changes."""
+    with STATE.lock:
+        if story_key == STATE.last_sound_key:
+            return False
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    if config.api_key:
+        headers["X-API-Key"] = config.api_key
+    payload = {
+        "application_name": "busy_rss",
+        "stock_path": "shared/calendar_event_starts.snd",
+    }
+    try:
+        request(
+            config.device_url.rstrip("/") + "/api/audio/play",
+            data=json.dumps(payload).encode(),
+            headers=headers,
+            method="POST",
+            timeout=5,
+        )
+    except Exception as exc:
+        LOGGER.warning("rss.sound.failed error=%s", exc)
+        return False
+    with STATE.lock:
+        STATE.last_sound_key = story_key
+    LOGGER.info("rss.sound.played story=%r", story_key)
+    return True
 
 
 def record_input_event(event_number: int, details: dict[int, int]) -> None:
@@ -1884,7 +1926,10 @@ def show_message(text: str, color: str = "#FFFFFFFF", sound: bool = False) -> di
     if sound:
         try:
             request(config.device_url.rstrip("/") + "/api/audio/play",
-                    data=json.dumps({"sound": "notification"}).encode(),
+                    data=json.dumps({
+                        "application_name": "busy_hub",
+                        "stock_path": "shared/calendar_event_starts.snd",
+                    }).encode(),
                     headers=headers, method="POST", timeout=5)
         except Exception as exc:
             LOGGER.info("hub.message.sound_unavailable error=%s", exc)
@@ -2643,6 +2688,7 @@ def send_plain_headline(config: Config, item: Headline, rank: int, timeout: int 
     release_active_timer(config)
     request(config.device_url.rstrip("/") + "/api/display/draw",
             data=json.dumps(payload).encode(), headers=headers)
+    play_story_sound(config, f"{item.source}\n{item.title}")
 
 
 async def show_strongest_network() -> None:

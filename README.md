@@ -108,6 +108,8 @@ KREBS | Patch Tuesday fixes 137 flaws | 2h | 3/16
 Disable `show_meta` for a bare headline. In `freshness` LED mode, stories under
 an hour are green, under six hours amber, under a day orange, older stories
 slate, and undated stories gray. Use `fixed` mode for one constant LED color.
+RSS headlines are always capped at the `small` bitmap font (`tiny` remains
+available), and each newly displayed story plays the stock calendar chime once.
 
 ## Configuration
 
