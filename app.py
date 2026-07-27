@@ -222,10 +222,31 @@ def save_config(config: Config) -> None:
 def request(url: str, *, data: Optional[bytes] = None, headers: Optional[dict] = None,
             method: Optional[str] = None, timeout: int = 15) -> bytes:
     merged = {"User-Agent": USER_AGENT, **(headers or {})}
-    with urllib.request.urlopen(
-        urllib.request.Request(url, data=data, headers=merged, method=method), timeout=timeout
-    ) as response:
-        return response.read()
+    req = urllib.request.Request(url, data=data, headers=merged, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            return response.read()
+    except urllib.error.HTTPError as exc:
+        parsed = urllib.parse.urlparse(url)
+        is_draw = parsed.path == "/api/display/draw"
+        is_post = (method or ("POST" if data is not None else "GET")).upper() == "POST"
+        if exc.code != 409 or not is_draw or not is_post:
+            raise
+        # All display producers in this service share one transport. A 409 here
+        # means a previous Canvas application still owns the screen; release it
+        # once and replay the exact draw so individual features cannot leak
+        # arbitration failures into the GUI.
+        clear_url = urllib.parse.urlunparse(parsed._replace(query="", fragment=""))
+        with urllib.request.urlopen(
+            urllib.request.Request(clear_url, headers=merged, method="DELETE"),
+            timeout=timeout,
+        ):
+            pass
+        with urllib.request.urlopen(
+            urllib.request.Request(url, data=data, headers=merged, method=method),
+            timeout=timeout,
+        ) as response:
+            return response.read()
 
 
 def emulator_snapshot() -> dict:
@@ -1223,7 +1244,10 @@ def send_clock_frame(config: Config, image: bytes, filename: str) -> None:
     except urllib.error.HTTPError as exc:
         if exc.code != 409:
             raise
-        release_active_timer(config)
+        try:
+            release_active_timer(config)
+        finally:
+            clear_display(config)
         request(draw_url, data=json.dumps(payload).encode(), headers=draw_headers)
 
 
@@ -1457,6 +1481,19 @@ def record_input_event(event_number: int, details: dict[int, int]) -> None:
 def show_clock() -> dict:
     """Switch the display into a continuously refreshed hybrid clock mode."""
     with STATE.lock:
+        STATE.rss_pause_requested = False
+        STATE.rss_paused = False
+        STATE.network_sequence_cancelled = True
+    if NEXT_LOOP is not None and SEQUENCE_CANCEL_EVENT is not None:
+        NEXT_LOOP.call_soon_threadsafe(SEQUENCE_CANCEL_EVENT.set)
+    deadline = time.monotonic() + 2.5
+    while time.monotonic() < deadline:
+        with STATE.lock:
+            busy = STATE.auto_play_active or STATE.network_scan_active
+        if not busy:
+            break
+        time.sleep(0.05)
+    with STATE.lock:
         STATE.clock_active = True
         STATE.rss_mode_active = False
         STATE.rss_cursor = -1
@@ -1468,8 +1505,11 @@ def show_clock() -> dict:
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     if config.api_key:
         headers["X-API-Key"] = config.api_key
-    # The newest priority-100 app becomes frontmost atomically. Keep the prior
-    # layer underneath; deleting it during a transition can expose CUSTOM or 409.
+    try:
+        release_active_timer(config)
+    except Exception as exc:
+        LOGGER.info("clock.timer_release_skipped error=%s", exc)
+    clear_display(config)
     send_clock_frame(config, flip_clock_png(config=config), "clock.png")
     hide_rss_overlays(config)
     result = {"result": "OK"}
@@ -1650,13 +1690,28 @@ def show_source(source: str) -> dict:
         config, items = STATE.config, list(STATE.last_items)
         STATE.clock_active = False
     if not items:
-        raise ValueError("Nothing to show yet — refetch the feeds first")
+        entry = next((entry for entry in ALL_FEEDS if entry["source"] == source), None)
+        if not entry:
+            raise ValueError(f"Unknown feed {source!r}")
+        _, fetched = parse_feed(request(
+            entry["url"], timeout=45, headers=FEED_HEADERS,
+        ))
+        if not fetched:
+            raise ValueError(f"{source} returned no current headline")
+        items = [Headline(source, title, published) for title, published in fetched]
+        with STATE.lock:
+            STATE.last_items = items
     match = next(((i, it) for i, it in enumerate(items) if it.source == source), None)
     if match is None:
         raise ValueError(f"{source} has no current headline — it may be disabled or still fetching")
     index, item = match
     with STATE.lock:
         STATE.cursor = index  # rotator will advance from here on its next tick
+        STATE.custom_active = False
+        STATE.rss_paused = False
+        STATE.rss_pause_requested = False
+        STATE.rss_mode_active = False
+    quiesce_display(config)
     send_to_device(config, item, index + 1, len(items))
     LOGGER.info("display.show source=%s title=%r", item.source, item.title)
     return {"source": item.source, "title": item.title,
@@ -1761,6 +1816,31 @@ def clear_display(config: Config) -> None:
     )
 
 
+def quiesce_display(config: Config) -> None:
+    """Stop background producers and release the physical display for a GUI action."""
+    with STATE.lock:
+        STATE.clock_active = False
+        STATE.custom_active = False
+        STATE.rss_paused = False
+        STATE.rss_pause_requested = False
+        STATE.rss_mode_active = False
+        STATE.network_sequence_cancelled = True
+    if NEXT_LOOP is not None and SEQUENCE_CANCEL_EVENT is not None:
+        NEXT_LOOP.call_soon_threadsafe(SEQUENCE_CANCEL_EVENT.set)
+    deadline = time.monotonic() + 2.5
+    while time.monotonic() < deadline:
+        with STATE.lock:
+            busy = STATE.auto_play_active or STATE.network_scan_active
+        if not busy:
+            break
+        time.sleep(0.05)
+    try:
+        release_active_timer(config)
+    except Exception as exc:
+        LOGGER.info("display.timer_release_skipped error=%s", exc)
+    clear_display(config)
+
+
 def show_message(text: str, color: str = "#FFFFFFFF", sound: bool = False) -> dict:
     """Put an operator-authored message on the bar using the existing local transport."""
     text = clean_text(text)[:240]
@@ -1794,12 +1874,7 @@ def show_message(text: str, color: str = "#FFFFFFFF", sound: bool = False) -> di
     if config.api_key:
         headers["X-API-Key"] = config.api_key
     base = config.device_url.rstrip("/") + "/api/display/draw"
-    try:
-        request(base + "?" + urllib.parse.urlencode({"application_name": "busy_hub"}),
-                headers=headers, method="DELETE")
-    except urllib.error.HTTPError as exc:
-        if exc.code != 404:
-            raise
+    quiesce_display(config)
     request(base,
             data=json.dumps(payload).encode(), headers=headers, method="POST")
     # Only stop the updater after the new priority-100 layer is safely live.
@@ -2504,6 +2579,25 @@ def show_clients_now(config: Config) -> dict:
     """GUI-triggered: pull router client data and cycle the client screens on the bar."""
     with STATE.lock:
         STATE.clock_active = False
+        STATE.custom_active = False
+        STATE.rss_paused = False
+        STATE.rss_pause_requested = False
+        STATE.rss_mode_active = False
+        STATE.network_sequence_cancelled = True
+    if NEXT_LOOP is not None and SEQUENCE_CANCEL_EVENT is not None:
+        NEXT_LOOP.call_soon_threadsafe(SEQUENCE_CANCEL_EVENT.set)
+    deadline = time.monotonic() + 2.5
+    while time.monotonic() < deadline:
+        with STATE.lock:
+            busy = STATE.auto_play_active or STATE.network_scan_active
+        if not busy:
+            break
+        time.sleep(0.05)
+    try:
+        release_active_timer(config)
+    except Exception as exc:
+        LOGGER.info("clients.timer_release_skipped error=%s", exc)
+    clear_display(config)
     send_bar_screen(config, "LOADING", "CLIENTS", 0)
     overview = fetch_router_overview(config)
     screens = client_bar_screens(overview)
@@ -2511,6 +2605,10 @@ def show_clients_now(config: Config) -> dict:
         send_bar_screen(config, l1, l2, slot)
         time.sleep(3)
     active = sum(1 for c in overview.get("clients", []) if c.get("active"))
+    with STATE.lock:
+        STATE.last_run = time.time()
+        STATE.last_source = f"NETWORK · {active} ACTIVE"
+        STATE.last_error = ""
     LOGGER.info("clients.show active=%d screens=%d", active, len(screens))
     return {"result": "shown", "active": active, "screens": len(screens)}
 
@@ -3022,6 +3120,14 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
         elif path in ("/hub", "/hub/"):
             body = (ROOT / "static" / "bar-hub.html").read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+        elif path in ("/staging", "/staging/"):
+            body = (ROOT / "static" / "staging.html").read_bytes()
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))

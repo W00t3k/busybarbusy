@@ -31,6 +31,7 @@ cd busybarbusy
 The launcher creates `.venv` on first run. Open the interfaces:
 
 - **Bar Hub:** <http://localhost:8090/hub>
+- **Virtual Staging:** <http://localhost:8090/staging>
 - **Classic feed control:** <http://localhost:8090>
 - **Network Hub:** <http://localhost:8315>
 - **BUSY Bar Emulator:** <http://localhost:8088>
@@ -62,8 +63,8 @@ The Bar Hub also detects the firmware-compatible
 `com.busybarbusy.emulator.plist` keeps that separate service available without
 conflicting with applications already using port `8080`.
 
-The dashboard embeds that emulator as a virtual staging bar. **Preview RSS**
-renders Newsroom virtually; **Push current RSS** atomically selects that
+Virtual Staging is its own pop-out workspace rather than an embedded dashboard
+panel. **Preview RSS** renders Newsroom virtually; **Push current RSS** atomically selects that
 same app when needed, copies the currently visible headline to the configured device,
 and stops the background clock, RSS rotation, and network sequence first so
 they cannot immediately reclaim the display.
