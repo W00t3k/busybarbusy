@@ -228,6 +228,113 @@ def request(url: str, *, data: Optional[bytes] = None, headers: Optional[dict] =
         return response.read()
 
 
+def emulator_snapshot() -> dict:
+    """Read the emulator's initial SSE state without keeping a stream open."""
+    req = urllib.request.Request(
+        "http://127.0.0.1:8088/events",
+        headers={"Accept": "text/event-stream", "User-Agent": USER_AGENT},
+    )
+    with urllib.request.urlopen(req, timeout=5) as response:
+        for raw_line in response:
+            line = raw_line.decode("utf-8", "replace").strip()
+            if line.startswith("data: "):
+                return json.loads(line[6:])
+    raise RuntimeError("Emulator returned no display state")
+
+
+def push_emulator_frame() -> dict:
+    """Copy the current virtual composition to the configured physical bar."""
+    frame = (emulator_snapshot().get("frame") or {})
+    virtual_elements = frame.get("elements") or []
+    if not virtual_elements:
+        raise ValueError("The virtual display is empty — run an emulator app first")
+    with STATE.lock:
+        config = STATE.config
+        STATE.clock_active = False
+        STATE.custom_active = False
+        STATE.auto_play_active = False
+        STATE.rss_paused = False
+        STATE.rss_pause_requested = False
+        STATE.rss_mode_active = False
+        STATE.network_sequence_cancelled = True
+    if NEXT_LOOP is not None and SEQUENCE_CANCEL_EVENT is not None:
+        NEXT_LOOP.call_soon_threadsafe(SEQUENCE_CANCEL_EVENT.set)
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    if config.api_key:
+        headers["X-API-Key"] = config.api_key
+    elements = []
+    for index, original in enumerate(virtual_elements):
+        element = dict(original)
+        element.setdefault("id", f"virtual-{index}")
+        element.setdefault("display", "front")
+        element.setdefault("timeout", 0)
+        for key in ("color", "border_color", "fill_color"):
+            value = element.get(key)
+            if isinstance(value, str) and value.startswith("0x"):
+                element[key] = "#" + value[2:]
+        if element.get("type") == "text":
+            element.setdefault("font", "normal")
+            element.setdefault("color", "#FFFFFFFF")
+            element.setdefault("align", "mid_left")
+            element.setdefault("x", 0)
+            element.setdefault("y", 8)
+            element.setdefault("width", max(1, 72 - int(element["x"])))
+            element.setdefault("scroll_rate", 0)
+            element.setdefault("scroll_start_delay", 0)
+            element.setdefault("scroll_repeat_delay", 0)
+        elif element.get("type") == "image":
+            virtual_path = str(element.get("path") or "")
+            if virtual_path:
+                asset = request(
+                    "http://127.0.0.1:8088/assets/" +
+                    urllib.parse.quote(virtual_path, safe="/"),
+                    timeout=5,
+                )
+                filename = Path(virtual_path).name
+                upload_headers = {
+                    "Content-Type": "application/octet-stream",
+                    "Accept": "application/json",
+                }
+                if config.api_key:
+                    upload_headers["X-API-Key"] = config.api_key
+                query = urllib.parse.urlencode({
+                    "application_name": "bar_hub_emulator",
+                    "file": filename,
+                })
+                request(
+                    config.device_url.rstrip("/") + "/api/assets/upload?" + query,
+                    data=asset,
+                    headers=upload_headers,
+                    timeout=10,
+                )
+                element["path"] = filename
+            element.setdefault("align", "top_left")
+            element.setdefault("x", 0)
+            element.setdefault("y", 0)
+            element.setdefault("opacity", 100)
+        elements.append(element)
+    payload = {
+        "application_name": "bar_hub_emulator",
+        "priority": 100,
+        "elements": elements,
+    }
+    draw_url = config.device_url.rstrip("/") + "/api/display/draw"
+    request(draw_url, headers=headers, method="DELETE", timeout=10)
+    raw = request(
+        draw_url,
+        data=json.dumps(payload).encode(),
+        headers=headers,
+        timeout=10,
+    )
+    return {
+        "result": "pushed",
+        "source_application": frame.get("application_name"),
+        "elements": len(elements),
+        "device": config.device_url,
+        "response": json.loads(raw or b"{}"),
+    }
+
+
 def protobuf_fields(payload: bytes) -> list:
     """Decode the small subset of protobuf wire types used by device input events."""
     fields, offset = [], 0
@@ -3067,6 +3174,8 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("Scheduler isn't ready yet")
                 future = asyncio.run_coroutine_threadsafe(push_enabled_feeds(), NEXT_LOOP)
                 self.json_response(200, future.result(timeout=20))
+            elif path == "/api/emulator/push":
+                self.json_response(200, push_emulator_frame())
             elif path == "/api/message":
                 self.json_response(200, show_message(
                     str(body.get("text", "")),
