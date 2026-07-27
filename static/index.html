@@ -184,7 +184,7 @@
             </div></div>
           </form>
           <div class="row-actions"><button class="btn primary" id="clock-save">Save & show</button><button class="btn ghost" id="clock-revert">Revert</button><button class="btn ghost" id="clock-stop">Stop clock</button><button class="btn ghost" id="button-start">Press START</button></div>
-          <p style="color:var(--muted);font:11px/1.5 var(--mono);margin:8px 2px 0">Press START mirrors the physical button: one click plays every enabled feed back-to-back (with a timestamp), then nearby networks, then returns to the clock. Press STOP during playback to cancel immediately and return to the clock.</p>
+          <p style="color:var(--muted);font:11px/1.5 var(--mono);margin:8px 2px 0">The physical button is state-aware: press once to start RSS, again to pause on the current story, and again to advance to the next story and resume.</p>
           <div class="card full" style="padding:12px;margin-top:14px">
             <h2 style="font-size:13px;margin:0 0 10px">Saved clocks</h2>
             <div id="preset-list" style="display:grid;gap:6px"></div>
@@ -225,7 +225,7 @@
         <form id="settings-form" class="form-grid">
           <div class="card"><h2>Device</h2><label>BUSY Bar address</label><input name="device_url" type="url"><label>API key</label><input name="api_key" type="password" placeholder="Leave blank to keep saved key"></div>
           <div class="card"><h2>Playback</h2><label>Feed mode</label><select name="mode"><option value="newest">Newest only</option><option value="rotate">Rotate sources</option><option value="pinned">Pinned source</option></select><label>Pinned source</label><input name="pinned_source"><label class="check"><input name="enabled" type="checkbox"> Run feed automatically</label><label class="check"><input name="show_meta" type="checkbox"> Include age and queue position</label></div>
-          <div class="card"><h2>Physical controls</h2><label>CUSTOM launches</label><select name="custom_action"><option value="clock">Retro flip clock</option><option value="rss">RSS rotation</option></select><label class="check"><input name="hourly_flash" type="checkbox"> Flash lights at the top of every hour</label><label>Hourly light color</label><input name="hourly_flash_color" placeholder="#FF9130FF"><p style="color:var(--muted);font:11px/1.5 var(--mono)">CUSTOM opens the clock. START plays every enabled feed and network info; STOP cancels the sequence immediately and returns to the live clock.</p></div>
+          <div class="card"><h2>Physical controls</h2><label>CUSTOM launches</label><select name="custom_action"><option value="clock">Retro flip clock</option><option value="rss">RSS rotation</option></select><label class="check"><input name="hourly_flash" type="checkbox"> Flash lights at the top of every hour</label><label>Hourly light color</label><input name="hourly_flash_color" placeholder="#FF9130FF"><p style="color:var(--muted);font:11px/1.5 var(--mono)">CUSTOM opens the clock. The same physical button cycles START RSS → PAUSE current story → NEXT story and resume.</p></div>
           <div class="card"><h2>Display</h2><label>Font</label><select name="font"><option>tiny</option><option>small</option><option>normal</option><option>condensed</option><option>bold</option><option>large</option></select><label>LED behavior</label><select name="led_mode"><option value="freshness">Headline freshness</option><option value="fixed">Fixed color</option></select><label>Fixed LED color</label><input name="led_color"></div>
           <div class="card"><h2>Refresh</h2><label>Refresh interval (minutes)</label><input name="interval_minutes" type="number" min="1" max="1440"><label>Headlines to keep</label><input name="max_items" type="number" min="1" max="50"></div>
           <div class="card"><h2>Home router</h2><label>Router address</label><input name="router_url" type="url" placeholder="https://192.168.2.1"><label>Admin username</label><input name="router_username" placeholder="admin"><label>Admin password</label><input name="router_password" type="password" placeholder="Leave blank to keep saved password"><label>Session token (sysauth)</label><input name="router_sysauth" type="password" placeholder="Leave blank to keep saved token"><p style="color:var(--muted);font:11px/1.5 var(--mono)">A valid sysauth cookie is reused and kept alive. Password login is used only to bootstrap a new token.</p><button class="btn ghost" id="router-logout" type="button">End router session</button></div>
@@ -304,7 +304,7 @@ function renderPresets(){
 async function load(){
   try{const [cfg,result]=await Promise.all([api("/api/config"),api("/api/feeds")]);config=cfg.config;status=cfg.status;feeds=result.feeds;
     fill($("#clock-form"),config);fill($("#settings-form"),config);renderPresets();
-    const active=feeds.filter(f=>f.enabled).length;$("#feed-count").textContent=`${active} / ${feeds.length}`;$("#run-state").textContent=status.clock_active?"clock":config.enabled?"feed live":"paused";
+    const active=feeds.filter(f=>f.enabled).length;$("#feed-count").textContent=`${active} / ${feeds.length}`;$("#run-state").textContent=status.rss_paused?"rss paused":status.auto_play_active?"rss playing":status.clock_active?"clock":config.enabled?"feed live":"ready";
     renderTopBandwidth();
     $("#pulse").classList.toggle("on",status.clock_active||config.enabled);$("#health").textContent="server online";note(status.last_error||"Ready",!!status.last_error);render();preview();
   }catch(error){$("#health").textContent="offline";note(error.message,true)}}
@@ -472,7 +472,7 @@ $("#add-feed").onclick=async event=>{
 $("#feeds").addEventListener("toggle",event=>{const details=event.target.closest(".feed-group");if(!details)return;details.open?openGroups.add(details.dataset.group):openGroups.delete(details.dataset.group)},true);
 $("#badge-form").onsubmit=async event=>{event.preventDefault();try{await api("/api/badge",values(event.target));$("#editor").close();note("Badge updated");load()}catch(error){note(error.message,true)}};
 $("#close-editor").onclick=()=>$("#editor").close();
-$("#push-rss").onclick=async event=>{event.target.disabled=true;note("Refreshing and pushing every enabled RSS feed…");try{const d=await api("/api/rss/push",{});note(d.result==="started"?`On the bar · playing ${d.feeds} enabled feeds`:"Skipped to the next feed");await load()}catch(error){note(error.message,true)}event.target.disabled=false};
+$("#push-rss").onclick=async event=>{event.target.disabled=true;note("Updating physical RSS control…");try{const d=await api("/api/rss/push",{});note(d.result==="started"?`On the bar · playing ${d.feeds} enabled feeds`:d.result==="paused"?"RSS paused on the current story":"Next story · RSS resumed");await load()}catch(error){note(error.message,true)}event.target.disabled=false};
 $("#next").onclick=async event=>{event.target.disabled=true;try{const d=await api("/api/next",{});note(`${d.position}/${d.total} · ${shortName(d.source)} — ${d.title}`)}catch(error){note(error.message,true)}event.target.disabled=false};
 $("#refresh").onclick=async event=>{event.target.disabled=true;note("Refreshing enabled sources…");try{const d=await api("/api/preview",{});note(`${d.titles.length} sources refreshed`);load()}catch(error){note(error.message,true)}event.target.disabled=false};
 $("#clock-form").addEventListener("input",previewClockLive);
@@ -494,7 +494,7 @@ $("#button-start").onclick=async event=>{
   event.target.disabled=true;
   try{
     const d=await api("/api/button/start",{});
-    note(d.result==="started"?"START · playing feeds back-to-back, then network info, then clock":"STOP · cancelled playback and returned to clock");
+    note(d.result==="started"?"START · playing RSS":d.result==="paused"?"PAUSED · current story held":"NEXT · resumed on the next story");
     load();
   }catch(error){note(error.message,true)}
   event.target.disabled=false;

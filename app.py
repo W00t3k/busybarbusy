@@ -1208,6 +1208,8 @@ class State:
         self.rss_cursor = -1
         self.button_stage = "clock"  # "clock" | "auto" — START starts/cancels the auto-play run
         self.auto_play_active = False
+        self.rss_paused = False
+        self.rss_pause_requested = False
         self.rss_digest: list[Headline] = []
         self.rss_digest_at = 0.0
         self.control_last_press = 0.0
@@ -1257,7 +1259,8 @@ def record_input_event(event_number: int, details: dict[int, int]) -> None:
         if event_number == 2:
             label = "CUSTOM selected" if details.get(1) == 1 else "Selector changed"
         elif event_number == 1 and details.get(1) == 2:
-            label = ("STOP pressed" if STATE.auto_play_active else "START pressed") \
+            label = ("PAUSE pressed" if STATE.auto_play_active
+                     else "NEXT pressed" if STATE.rss_paused else "START pressed") \
                 if details.get(2, 0) == 0 else "START changed"
         else:
             label = f"Input event {event_number}"
@@ -1280,6 +1283,8 @@ def show_clock() -> dict:
         STATE.clock_active = True
         STATE.rss_mode_active = False
         STATE.rss_cursor = -1
+        STATE.rss_paused = False
+        STATE.rss_pause_requested = False
         STATE.button_stage = "clock"
         config = STATE.config
     item = Headline("CLOCK", "", time.time())
@@ -2439,19 +2444,17 @@ async def show_strongest_network() -> None:
 
 
 async def auto_play_digest() -> None:
-    """One press runs the whole thing: every enabled feed back-to-back (each a
-    full scroll pass, source + timestamp), then up to 5 nearby APs, then back
-    to the live clock. A further press advances immediately to the next item
-    (AUTO_PLAY_SKIP_EVENT) instead of waiting out the current one's timer;
-    SEQUENCE_CANCEL_EVENT (from elsewhere — the physical dial leaving CUSTOM)
-    stops the whole run instead of just skipping one item."""
+    """Play the digest from the selected cursor until paused or completed."""
     with STATE.lock:
         config = STATE.config
         digest = list(STATE.rss_digest)
+        start_index = STATE.rss_cursor if 0 <= STATE.rss_cursor < len(digest) else 0
         STATE.button_stage = "auto"
         STATE.rss_mode_active = True
         STATE.clock_active = False
         STATE.auto_play_active = True
+        STATE.rss_paused = False
+        STATE.rss_pause_requested = False
         # Mirrors what a physical press already sets — makes the finally
         # block's "am I still supposed to be on custom" check below correct
         # regardless of whether this run started from hardware or the GUI.
@@ -2482,11 +2485,14 @@ async def auto_play_digest() -> None:
     stopped = False
     try:
         try:
-            await asyncio.to_thread(send_bar_screen, config, "START", "RSS", 0)
+            await asyncio.to_thread(send_bar_screen, config,
+                                    "NEXT" if start_index else "START", "RSS", 0)
             await asyncio.sleep(0.65)
         except Exception as exc:
             LOGGER.warning("rss.autoplay.start_feedback_failed error=%s", exc)
-        for index, item in enumerate(digest):
+        ordered = list(range(start_index, len(digest))) + list(range(0, start_index))
+        for position, index in enumerate(ordered):
+            item = digest[index]
             with STATE.lock:
                 STATE.rss_cursor = index
             try:
@@ -2535,50 +2541,74 @@ async def auto_play_digest() -> None:
                 LOGGER.info("rss.autoplay.skipped client_slot=%d", slot)
     finally:
         with STATE.lock:
+            paused = STATE.rss_pause_requested
             STATE.auto_play_active = False
-            STATE.rss_mode_active = False
-            STATE.rss_cursor = -1
+            STATE.rss_paused = paused
+            STATE.rss_mode_active = paused
+            STATE.rss_pause_requested = False
+            if not paused:
+                STATE.rss_cursor = -1
             still_custom = STATE.custom_active
         LOGGER.info("rss.autoplay.done")
         if still_custom:
-            if stopped:
+            if paused and digest:
                 try:
-                    await asyncio.to_thread(send_bar_screen, config, "STOPPED", "CLOCK", 0)
-                    await asyncio.sleep(0.8)
+                    item = digest[STATE.rss_cursor]
+                    await asyncio.to_thread(send_bar_screen, config, "PAUSED", item.source[:9], 0)
+                    await asyncio.sleep(0.65)
+                    await asyncio.to_thread(send_plain_headline, config, item,
+                                            STATE.rss_cursor + 1, 3600)
                 except Exception as exc:
-                    LOGGER.warning("rss.autoplay.stop_feedback_failed error=%s", exc)
-            await asyncio.to_thread(show_clock)
+                    LOGGER.warning("rss.autoplay.pause_feedback_failed error=%s", exc)
+            elif stopped:
+                await asyncio.to_thread(show_clock)
+            else:
+                await asyncio.to_thread(show_clock)
 
 
-async def register_start_press() -> None:
-    """START begins auto-play; the physical STOP press cancels it to the clock."""
+async def register_start_press() -> str:
+    """Cycle one physical button through start, pause, and next/resume."""
     with STATE.lock:
         digest = list(STATE.rss_digest)
         auto_playing = STATE.auto_play_active
+        paused = STATE.rss_paused
     if auto_playing:
-        LOGGER.info("rss.autoplay.stop_requested")
+        LOGGER.info("rss.autoplay.pause_requested")
+        with STATE.lock:
+            STATE.rss_pause_requested = True
         if SEQUENCE_CANCEL_EVENT:
             SEQUENCE_CANCEL_EVENT.set()
-        return
+        return "paused"
     if not digest:
         LOGGER.warning("rss.button.empty digest_not_ready")
-        return
+        return "empty"
+    if paused:
+        with STATE.lock:
+            STATE.rss_cursor = (STATE.rss_cursor + 1) % len(digest)
+            STATE.rss_paused = False
+        LOGGER.info("rss.autoplay.next_requested position=%d/%d",
+                    STATE.rss_cursor + 1, len(digest))
+        asyncio.create_task(auto_play_digest())
+        return "resumed"
+    with STATE.lock:
+        STATE.rss_cursor = 0
     asyncio.create_task(auto_play_digest())
+    return "started"
 
 
 async def push_enabled_feeds() -> dict:
     """Refresh every enabled feed and start the complete digest from the web UI."""
     with STATE.lock:
-        already_playing = STATE.auto_play_active
-    if already_playing:
-        await register_start_press()
-        return {"result": "stopped", "feeds": len(STATE.rss_digest)}
+        active = STATE.auto_play_active or STATE.rss_paused
+    if active:
+        result = await register_start_press()
+        return {"result": result, "feeds": len(STATE.rss_digest)}
     if not await refresh_button_digest():
         raise ValueError("None of the enabled RSS feeds returned a headline")
     with STATE.lock:
         count = len(STATE.rss_digest)
-    await register_start_press()
-    return {"result": "started", "feeds": count}
+    result = await register_start_press()
+    return {"result": result, "feeds": count}
 
 
 async def accept_start_press(origin: str) -> None:
@@ -2822,7 +2852,9 @@ class Handler(BaseHTTPRequestHandler):
                 config["router_sysauth"] = ""
                 status = {"last_run": STATE.last_run, "last_error": STATE.last_error,
                           "last_source": STATE.last_source, "last_titles": STATE.last_titles,
-                          "clock_active": STATE.clock_active}
+                          "clock_active": STATE.clock_active,
+                          "auto_play_active": STATE.auto_play_active,
+                          "rss_paused": STATE.rss_paused}
             self.json_response(200, {"config": config, "status": status})
         elif path == "/api/clock/image":
             with STATE.lock:
@@ -2908,10 +2940,12 @@ class Handler(BaseHTTPRequestHandler):
                 events = list(STATE.input_events)
                 custom_active = STATE.custom_active
                 auto_play_active = STATE.auto_play_active
+                rss_paused = STATE.rss_paused
             self.json_response(200, {
                 "events": events,
                 "custom_active": custom_active,
                 "auto_play_active": auto_play_active,
+                "rss_paused": rss_paused,
                 "connected": bool(events),
             })
         elif path == "/api/networks":
@@ -2951,6 +2985,8 @@ class Handler(BaseHTTPRequestHandler):
                     STATE.rss_digest = []
                     STATE.rss_digest_at = 0.0
                     STATE.rss_cursor = -1
+                    STATE.rss_paused = False
+                    STATE.rss_pause_requested = False
                     STATE.button_stage = "clock"
                     save_config(config)
                 # A saved config can change which feeds/URLs the digest pulls from,
@@ -3001,11 +3037,12 @@ class Handler(BaseHTTPRequestHandler):
                 with STATE.lock:
                     digest_ready = bool(STATE.rss_digest)
                     was_playing = STATE.auto_play_active
-                if not was_playing and not digest_ready:
+                    was_paused = STATE.rss_paused
+                if not was_playing and not was_paused and not digest_ready:
                     raise ValueError("Feed digest isn't warmed up yet — try again in a few seconds")
                 future = asyncio.run_coroutine_threadsafe(register_start_press(), NEXT_LOOP)
-                future.result(timeout=5)
-                self.json_response(200, {"result": "stopped" if was_playing else "started"})
+                result = future.result(timeout=5)
+                self.json_response(200, {"result": result})
             elif path == "/api/rss/push":
                 if NEXT_LOOP is None:
                     raise ValueError("Scheduler isn't ready yet")
