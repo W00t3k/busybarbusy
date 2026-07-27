@@ -262,13 +262,21 @@ def push_emulator_frame() -> dict:
         config = STATE.config
         STATE.clock_active = False
         STATE.custom_active = False
-        STATE.auto_play_active = False
         STATE.rss_paused = False
         STATE.rss_pause_requested = False
         STATE.rss_mode_active = False
         STATE.network_sequence_cancelled = True
     if NEXT_LOOP is not None and SEQUENCE_CANCEL_EVENT is not None:
         NEXT_LOOP.call_soon_threadsafe(SEQUENCE_CANCEL_EVENT.set)
+    # Do not race an in-flight autoplay draw. Its cancellation is handled on
+    # the asyncio loop and the finally block is the authoritative state change.
+    deadline = time.monotonic() + 2.5
+    while time.monotonic() < deadline:
+        with STATE.lock:
+            busy = STATE.auto_play_active or STATE.network_scan_active
+        if not busy:
+            break
+        time.sleep(0.05)
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     if config.api_key:
         headers["X-API-Key"] = config.api_key
@@ -332,13 +340,30 @@ def push_emulator_frame() -> dict:
         "elements": elements,
     }
     draw_url = config.device_url.rstrip("/") + "/api/display/draw"
-    request(draw_url, headers=headers, method="DELETE", timeout=10)
-    raw = request(
-        draw_url,
-        data=json.dumps(payload).encode(),
-        headers=headers,
-        timeout=10,
-    )
+    try:
+        release_active_timer(config)
+    except Exception as exc:
+        LOGGER.info("emulator.push.timer_release_skipped error=%s", exc)
+    raw = b""
+    for attempt in range(3):
+        request(draw_url, headers=headers, method="DELETE", timeout=10)
+        try:
+            raw = request(
+                draw_url,
+                data=json.dumps(payload).encode(),
+                headers=headers,
+                timeout=10,
+            )
+            break
+        except urllib.error.HTTPError as exc:
+            if exc.code != 409 or attempt == 2:
+                raise
+            LOGGER.warning("emulator.push.conflict retry=%d", attempt + 1)
+            try:
+                release_active_timer(config)
+            except Exception:
+                pass
+            time.sleep(0.12)
     return {
         "result": "pushed",
         "source_application": frame.get("application_name"),
@@ -1724,6 +1749,18 @@ def clear_app(config: Config, application_name: str) -> None:
     request(url, headers=headers, method="DELETE")
 
 
+def clear_display(config: Config) -> None:
+    """Release whichever Canvas application currently owns the front display."""
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    if config.api_key:
+        headers["X-API-Key"] = config.api_key
+    request(
+        config.device_url.rstrip("/") + "/api/display/draw",
+        headers=headers,
+        method="DELETE",
+    )
+
+
 def show_message(text: str, color: str = "#FFFFFFFF", sound: bool = False) -> dict:
     """Put an operator-authored message on the bar using the existing local transport."""
     text = clean_text(text)[:240]
@@ -2615,6 +2652,12 @@ async def auto_play_digest() -> None:
         SEQUENCE_CANCEL_EVENT.clear()
     if AUTO_PLAY_SKIP_EVENT:
         AUTO_PLAY_SKIP_EVENT.clear()
+    # Starting RSS is an explicit ownership change. Clear a staged emulator
+    # frame, clock, or previous app before the first priority-100 feedback draw.
+    try:
+        await asyncio.to_thread(clear_display, config)
+    except Exception as exc:
+        LOGGER.warning("rss.autoplay.clear_failed error=%s", exc)
 
     async def wait_step(seconds: float) -> str:
         """"timeout" (ran the full duration), "skip" (advance now), or "cancel" (stop the run)."""
@@ -2657,6 +2700,10 @@ async def auto_play_digest() -> None:
                 # One feed failing to draw (transient device/HTTP error) shouldn't
                 # abort the whole run — skip it and move on to the next one.
                 LOGGER.warning("rss.autoplay.display_failed source=%s error=%s", item.source, exc)
+                if SEQUENCE_CANCEL_EVENT and SEQUENCE_CANCEL_EVENT.is_set():
+                    stopped = True
+                    LOGGER.info("rss.autoplay.cancelled_after_draw_error")
+                    return
                 continue
             outcome = await wait_step(duration)
             if outcome == "cancel":
@@ -3341,6 +3388,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.json_response(200, STATE.refresh(send=path == "/api/refresh"))
             else:
                 self.json_response(404, {"error": "Not found"})
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")
+            self.json_response(exc.code, {"error": detail or str(exc)})
         except (ValueError, ET.ParseError, urllib.error.URLError) as exc:
             self.json_response(400, {"error": str(exc)})
         except Exception as exc:
