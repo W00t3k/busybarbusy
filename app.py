@@ -248,6 +248,16 @@ def push_emulator_frame() -> dict:
     virtual_elements = frame.get("elements") or []
     if not virtual_elements:
         raise ValueError("The virtual display is empty — run an emulator app first")
+    unsupported = sorted({
+        str(element.get("type") or "unknown")
+        for element in virtual_elements
+        if element.get("type") != "text"
+    })
+    if unsupported:
+        raise ValueError(
+            "This emulator frame uses unsupported physical elements: " +
+            ", ".join(unsupported) + ". Preview RSS or Clock first."
+        )
     with STATE.lock:
         config = STATE.config
         STATE.clock_active = False
@@ -275,7 +285,10 @@ def push_emulator_frame() -> dict:
         if element.get("type") == "text":
             element.setdefault("font", "normal")
             element.setdefault("color", "#FFFFFFFF")
-            element.setdefault("align", "mid_left")
+            # Emulator apps without an explicit alignment use x/y as the
+            # glyph box's top-left corner. The physical firmware otherwise
+            # defaults differently, so make that coordinate contract explicit.
+            element.setdefault("align", "top_left")
             element.setdefault("x", 0)
             element.setdefault("y", 8)
             element.setdefault("width", max(1, 72 - int(element["x"])))
@@ -333,6 +346,31 @@ def push_emulator_frame() -> dict:
         "device": config.device_url,
         "response": json.loads(raw or b"{}"),
     }
+
+
+def start_emulator_newsroom() -> dict:
+    raw = request(
+        "http://127.0.0.1:8088/api/_apps/start",
+        data=json.dumps({"name": "local/busy-newsroom", "args": []}).encode(),
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        timeout=10,
+    )
+    return json.loads(raw or b"{}")
+
+
+def push_emulator_newsroom() -> dict:
+    """Atomically select Newsroom and transfer its first completed frame."""
+    started = start_emulator_newsroom()
+    deadline = time.monotonic() + 8
+    while time.monotonic() < deadline:
+        snapshot = emulator_snapshot()
+        frame = snapshot.get("frame") or {}
+        if frame.get("application_name") == "busy-newsroom" and frame.get("elements"):
+            result = push_emulator_frame()
+            result["emulator_pid"] = started.get("pid")
+            return result
+        time.sleep(0.2)
+    raise RuntimeError("Newsroom did not produce a virtual frame in time")
 
 
 def protobuf_fields(payload: bytes) -> list:
@@ -3063,10 +3101,26 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/emulator":
             try:
                 value = json.loads(request("http://127.0.0.1:8088/api/version", timeout=3))
+                snapshot = emulator_snapshot()
+                frame = snapshot.get("frame") or {}
+                app = snapshot.get("app") or {}
+                elements = frame.get("elements") or []
+                compatible = bool(elements) and all(
+                    element.get("type") == "text" for element in elements
+                )
                 self.json_response(200, {
                     "running": True,
                     "url": "http://127.0.0.1:8088",
                     "api_semver": value.get("api_semver", "unknown"),
+                    "frame_ready": bool(elements),
+                    "frame_compatible": compatible,
+                    "frame_application": frame.get("application_name"),
+                    "frame_elements": len(elements),
+                    "app": {
+                        "name": app.get("name"),
+                        "running": bool(app.get("running")),
+                        "error": app.get("error"),
+                    },
                 })
             except Exception as exc:
                 self.json_response(200, {
@@ -3175,7 +3229,9 @@ class Handler(BaseHTTPRequestHandler):
                 future = asyncio.run_coroutine_threadsafe(push_enabled_feeds(), NEXT_LOOP)
                 self.json_response(200, future.result(timeout=20))
             elif path == "/api/emulator/push":
-                self.json_response(200, push_emulator_frame())
+                self.json_response(200, push_emulator_newsroom())
+            elif path == "/api/emulator/newsroom":
+                self.json_response(200, start_emulator_newsroom())
             elif path == "/api/message":
                 self.json_response(200, show_message(
                     str(body.get("text", "")),
