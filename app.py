@@ -359,7 +359,10 @@ def start_emulator_newsroom() -> dict:
 
 
 def push_emulator_newsroom() -> dict:
-    """Atomically select Newsroom and transfer its first completed frame."""
+    """Transfer the visible Newsroom frame; start it only when it is not active."""
+    current = emulator_snapshot().get("frame") or {}
+    if current.get("application_name") == "busy-newsroom" and current.get("elements"):
+        return push_emulator_frame()
     started = start_emulator_newsroom()
     deadline = time.monotonic() + 8
     while time.monotonic() < deadline:
@@ -3108,6 +3111,11 @@ class Handler(BaseHTTPRequestHandler):
                 compatible = bool(elements) and all(
                     element.get("type") == "text" for element in elements
                 )
+                frame_text = next((
+                    str(element.get("text") or "")
+                    for element in reversed(elements)
+                    if element.get("type") == "text" and element.get("text")
+                ), "")
                 self.json_response(200, {
                     "running": True,
                     "url": "http://127.0.0.1:8088",
@@ -3116,6 +3124,7 @@ class Handler(BaseHTTPRequestHandler):
                     "frame_compatible": compatible,
                     "frame_application": frame.get("application_name"),
                     "frame_elements": len(elements),
+                    "frame_text": frame_text,
                     "app": {
                         "name": app.get("name"),
                         "running": bool(app.get("running")),

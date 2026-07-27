@@ -63,8 +63,8 @@ The Bar Hub also detects the firmware-compatible
 conflicting with applications already using port `8080`.
 
 The dashboard embeds that emulator as a virtual staging bar. **Preview RSS**
-renders Newsroom virtually; **Push RSS to physical bar** atomically selects that
-same app, copies its firmware-compatible composition to the configured device,
+renders Newsroom virtually; **Push current RSS** atomically selects that
+same app when needed, copies the currently visible headline to the configured device,
 and stops the background clock, RSS rotation, and network sequence first so
 they cannot immediately reclaim the display.
 
